@@ -35,4 +35,7 @@
  */
 dependencies {
     //runtimeOnlyNonPublishable("com.github.GTNewHorizons:NotEnoughItems:2.7.69-GTNH:dev")
+    // AE2 networks are timed when it is there (late mixins), so it is only needed to compile against.
+    api("com.github.GTNewHorizons:GTNHLib:0.11.37:dev")
+    compileOnly("com.github.GTNewHorizons:Applied-Energistics-2-Unofficial:rv3-beta-999-GTNH:dev") { transitive = false }
 }

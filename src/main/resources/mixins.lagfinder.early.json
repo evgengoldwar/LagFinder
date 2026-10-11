@@ -1,8 +1,11 @@
 {
-  "required": true,
+  "required": false,
   "minVersion": "0.8.5-GTNH",
-  "package": "LagFinder.mixins.early",
+  "package": "lagfinder.mixins.early",
   "refmap": "mixins.lagfinder.refmap.json",
   "target": "@env(DEFAULT)",
-  "compatibilityLevel": "JAVA_8"
+  "compatibilityLevel": "JAVA_8",
+  "injectors": {
+    "defaultRequire": 0
+  }
 }
