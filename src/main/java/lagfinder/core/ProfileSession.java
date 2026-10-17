@@ -1,6 +1,7 @@
 package lagfinder.core;
 
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
@@ -14,6 +15,8 @@ import net.minecraft.world.World;
 
 import lagfinder.Config;
 import lagfinder.LagFinder;
+import lagfinder.compat.EnderIoConduits;
+import lagfinder.compat.GregTechPipes;
 
 /**
  * A running scan: the hooks in the game hand it the time each measured thing took, and the side running it marks
@@ -34,11 +37,22 @@ public final class ProfileSession {
      */
     public static ProfileSession current() {
         ProfileSession session = server;
-        if (session != null && session.timesThings && session.thread == Thread.currentThread()) {
+        if (session != null && session.timesThings && session.measuring && session.thread == Thread.currentThread()) {
             return session;
         }
         session = client;
-        if (session != null && session.timesThings && session.thread == Thread.currentThread()) {
+        if (session != null && session.timesThings && session.measuring && session.thread == Thread.currentThread()) {
+            return session;
+        }
+        return null;
+    }
+
+    public static ProfileSession currentServer() {
+        ProfileSession session = server;
+        if (session != null && session.timesThings
+            && session.measuring
+            && session.mode == ScanMode.TPS
+            && session.thread == Thread.currentThread()) {
             return session;
         }
         return null;
@@ -57,6 +71,13 @@ public final class ProfileSession {
     private ScanFocus focus = ScanFocus.LAG;
     /** Whether the time of each thing is measured: in lag scans only. */
     private volatile boolean timesThings = true;
+    /**
+     * A light scan measures one period in this many and lets the others run untouched (1: every period). What a
+     * measured period finds stands for all the periods it represents, so averages per tick stay right.
+     */
+    private int sampleEvery = 1;
+    /** Whether the period running now is measured (always, unless the scan is light). */
+    private volatile boolean measuring = true;
     public final Thread thread;
     public final long durationNanos;
     public final long startNanos;
@@ -81,7 +102,16 @@ public final class ProfileSession {
     @SuppressWarnings("unchecked")
     private final IdentityHashMap<Object, Node>[] leaves = new IdentityHashMap[Category.values().length];
     /** Block ticks by world, block and chunk. */
-    private final Map<World, IdentityHashMap<Block, HashMap<Long, Node>>> blockTicks = new IdentityHashMap<>();
+    private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> blockTicks = new IdentityHashMap<>();
+    private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> lightAt = new IdentityHashMap<>();
+    private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> neighborsAt = new IdentityHashMap<>();
+    private final Map<Long, WorldTask.Key> worldTaskKeys = new HashMap<>();
+    public static final int SPAN_LIGHT = 0, SPAN_PATH = 1;
+    private final int[] spanDepth = new int[2];
+    private final long[] spanStart = new long[2], spanOuter = new long[2];
+    private final GcWatcher gc = new GcWatcher();
+    private final double[] gcMillis = new double[BUCKETS];
+    private final int[] gcCounts = new int[BUCKETS];
     /**
      * Tile entities by world and block: one reloaded with its chunk is a new object at the same place, and is still
      * counted as the same thing.
@@ -89,6 +119,12 @@ public final class ProfileSession {
     private final Map<World, HashMap<Long, Node>> tilesAt = new IdentityHashMap<>();
     /** What AE2 networks ticked, by network: their machines and their own work. */
     private final Map<Object, IdentityHashMap<Object, Node>> networks = new IdentityHashMap<>();
+    /** GregTech covers that worked, by the tile they are on and its side. */
+    private final Map<TileEntity, Node[]> covers = new IdentityHashMap<>();
+    public static final int PIPE_GT_TICK = 0, PIPE_GT_ROUTE = 1, PIPE_GT_ENERGY = 2, PIPE_EIO_NETWORK = 3,
+        PIPE_EIO_CONDUIT = 4, PIPE_AE2 = 5;
+    private final IdentityHashMap<Object, Node> pipeNetworks = new IdentityHashMap<>();
+    private final Map<TileEntity, GregTechPipes.Network> gtNetworks = new IdentityHashMap<>();
     /**
      * Time measured inside the thing being measured now (an event a tile entity posts, the AE2 networks an event
      * handler ticks), left out of its own time: everything is counted once, where its own code runs.
@@ -100,6 +136,9 @@ public final class ProfileSession {
 
     /** What one call of {@code System.nanoTime()} costs here (ns): measured when the scan starts. */
     private final long timerNanos;
+    /** What recording one thing usually takes after its clock is read (ns), and how many were recorded. */
+    private long bookkeepingNanos;
+    private int leaveCount;
     /**
      * The scan's own cost in the period being measured (ns): reading the clock around each thing and adding its time
      * up. Left out of the period's time, so the report shows the game as it runs without the scan.
@@ -132,6 +171,7 @@ public final class ProfileSession {
      */
     private volatile boolean closed;
     private boolean prepared;
+    private final int[] steadyTickHistogram = new int[SteadyHistogram.BINS];
     private final List<String> warnings = new ArrayList<>();
 
     /**
@@ -199,7 +239,7 @@ public final class ProfileSession {
      */
     public void startFor(ScanFocus focus) {
         this.focus = focus;
-        timesThings = focus == ScanFocus.LAG;
+        timesThings = focus == ScanFocus.LAG || focus == ScanFocus.STEADY;
         switch (focus) {
             case METHODS:
                 startSampler(Config.sampleIntervalMs);
@@ -274,12 +314,28 @@ public final class ProfileSession {
         }
     }
 
+    /**
+     * Makes the scan light: one period in {@code every} is measured, the others run without the scan's hooks. Only for
+     * lag scans, whose report is about averages; a steady scan needs every tick.
+     */
+    public void setSampleEvery(int every) {
+        if (focus == ScanFocus.LAG && every > 1) {
+            sampleEvery = every;
+            warn("lagfinder.warning.light_scan");
+        }
+    }
+
+    public int sampleEvery() {
+        return sampleEvery;
+    }
+
     /** A tick (or frame) starts at {@code now}: a pause going on ends, and the thread is sampled until it ends. */
     public void beginPeriod(long now) {
         if (pausedSince != 0) {
             pausedNanos += Math.max(0, now - pausedSince);
             pausedSince = 0;
         }
+        measuring = sampleEvery <= 1 || totalPeriods % sampleEvery == 0;
         if (sampler != null) {
             sampler.setActive(true);
         }
@@ -342,7 +398,15 @@ public final class ProfileSession {
      * scan itself took here, from reading the clock at {@code start} to now, is counted as its cost.
      */
     private void leave(long start, long end, long outer) {
-        long now = System.nanoTime();
+        // Reading the clock once more for every thing costs as much as the bookkeeping it would time: it is read one
+        // time in 64, and the bookkeeping's usual cost stands for it the other times.
+        long now;
+        if ((++leaveCount & 63) == 0) {
+            now = System.nanoTime();
+            bookkeepingNanos = (bookkeepingNanos * 7 + Math.max(0, now - end)) / 8;
+        } else {
+            now = end + bookkeepingNanos;
+        }
         nestedNanos = outer + (now - start);
         // Half a reading before the start, one inside, the bookkeeping since the end, half a reading after now.
         periodOverhead += now - end + 2 * timerNanos;
@@ -369,13 +433,24 @@ public final class ProfileSession {
         long end = System.nanoTime();
         long nanos = ownTime(start, end);
         if (timesThings) {
-            IdentityHashMap<Object, Node> map = leaves[Category.TILE_ENTITIES.ordinal()];
-            Node node = map.get(tile);
+            // The line is kept on the tile itself (a mixin): no map look-up for the tens of thousands a tick.
+            TileNodeCache cache = tile instanceof TileNodeCache ? (TileNodeCache) tile : null;
+            Node node = cache != null ? cache.lagfinder$cachedNode(this) : null;
             if (node == null) {
-                node = tileAt(tile);
-                map.put(tile, node);
+                IdentityHashMap<Object, Node> map = leaves[Category.TILE_ENTITIES.ordinal()];
+                node = map.get(tile);
+                if (node == null) {
+                    node = tileAt(tile);
+                    map.put(tile, node);
+                }
+                if (cache != null) {
+                    cache.lagfinder$cacheNode(this, node);
+                }
             }
             node.add(nanos, 1, this);
+            if (focus == ScanFocus.STEADY) {
+                node.recordGtActivity(tile, nanos, totalPeriods);
+            }
             hits[Category.TILE_ENTITIES.ordinal()]++;
         }
         leave(start, end, outer);
@@ -431,8 +506,93 @@ public final class ProfileSession {
                 pending.add(node);
             }
             node.add(nanos, 1, this);
+            addToNetwork(network, PIPE_AE2, nanos);
         }
         leave(start, end, outer);
+    }
+
+    /**
+     * A GregTech cover on {@code side} (0-5) of {@code tile} that was {@link #enter entered} at {@code start} finished
+     * its work: counted per block and side, out of the time of the tile it is on.
+     */
+    public void recordCover(TileEntity tile, int side, Object cover, long start, long outer) {
+        if (closed) {
+            return;
+        }
+        long end = System.nanoTime();
+        long nanos = ownTime(start, end);
+        if (timesThings && tile != null && cover != null && side >= 0 && side < 6) {
+            Node[] sides = covers.get(tile);
+            if (sides == null) {
+                sides = new Node[6];
+                covers.put(tile, sides);
+            }
+            Node node = sides[side];
+            if (node == null || node.key != cover) {
+                // A new cover, or the one on this side was swapped for another.
+                node = new Node(Node.INSTANCE, Category.COVERS, cover);
+                node.live = tile;
+                node.coverSide = side;
+                sides[side] = node;
+                pending.add(node);
+            }
+            node.add(nanos, 1, this);
+            hits[Category.COVERS.ordinal()]++;
+        }
+        leave(start, end, outer);
+    }
+
+    public void recordPipe(int part, Object key, Object live, long start, long outer) {
+        if (closed) {
+            return;
+        }
+        long end = System.nanoTime();
+        long nanos = ownTime(start, end);
+        if (timesThings && key != null) {
+            Object network = pipeNetwork(part, key);
+            if (network != null) {
+                addToNetwork(network, part >= PIPE_EIO_NETWORK ? PIPE_EIO_NETWORK : PIPE_GT_TICK, nanos);
+            }
+        }
+        pass(end, outer);
+    }
+
+    private void addToNetwork(Object network, int family, long nanos) {
+        Node node = pipeNetworks.get(network);
+        if (node == null) {
+            node = new Node(Node.INSTANCE, Category.PIPE_NETWORKS, network);
+            node.live = network;
+            node.pipePart = family;
+            pipeNetworks.put(network, node);
+            pending.add(node);
+        }
+        node.add(nanos, 1, this);
+        hits[Category.PIPE_NETWORKS.ordinal()]++;
+    }
+
+    public void recordPipeSide(TileEntity pipe, int side, long start, long outer) {
+        recordPipe(PIPE_GT_ENERGY, pipe, null, start, outer);
+    }
+
+    private Object pipeNetwork(int part, Object key) {
+        try {
+            switch (part) {
+                case PIPE_EIO_NETWORK:
+                    return key;
+                case PIPE_EIO_CONDUIT:
+                    return EnderIoConduits.networkOf(key);
+                default:
+                    return key instanceof TileEntity ? GregTechPipes.networkOf((TileEntity) key, gtNetworks) : null;
+            }
+        } catch (Throwable t) {
+            return null;
+        }
+    }
+
+    private void pass(long end, long outer) {
+        long now = System.nanoTime();
+        nestedNanos = outer + nestedNanos + (now - end);
+        periodOverhead += now - end + 2 * timerNanos;
     }
 
     /** Time the thing (a tile entity, an entity, a listener, a world) took just now. */
@@ -466,23 +626,99 @@ public final class ProfileSession {
      * shown and teleported to, so its place agrees with the chunk named.
      */
     public void recordBlockTick(World world, Block block, int x, int y, int z, long nanos) {
-        if (!timesThings) {
+        recordAt(blockTicks, Category.BLOCK_TICKS, world, block, x, y, z, nanos);
+    }
+
+    public void recordNeighborUpdate(World world, Block block, int x, int y, int z, long start, long outer) {
+        if (closed) {
             return;
         }
-        IdentityHashMap<Block, HashMap<Long, Node>> byBlock = blockTicks.get(world);
-        if (byBlock == null) {
-            byBlock = new IdentityHashMap<>();
-            blockTicks.put(world, byBlock);
+        long end = System.nanoTime();
+        recordAt(neighborsAt, Category.NEIGHBOR_UPDATES, world, block, x, y, z, ownTime(start, end));
+        leave(start, end, outer);
+    }
+
+    public void recordTask(World world, WorldTask task, long start, long outer) {
+        if (closed) {
+            return;
         }
-        HashMap<Long, Node> byChunk = byBlock.get(block);
+        record(task.category, worldTask(world, task), start, outer);
+    }
+
+    private WorldTask.Key worldTask(World world, WorldTask task) {
+        int dim = world.provider.dimensionId;
+        long id = (long) dim << 8 | task.ordinal();
+        WorldTask.Key key = worldTaskKeys.get(id);
+        if (key == null) {
+            key = new WorldTask.Key(dim, task, world);
+            worldTaskKeys.put(id, key);
+        }
+        return key;
+    }
+
+    public void spanBegin(int span) {
+        if (closed) {
+            return;
+        }
+        if (spanDepth[span]++ == 0) {
+            spanOuter[span] = enter();
+            spanStart[span] = System.nanoTime();
+        }
+    }
+
+    private boolean spanEnds(int span) {
+        if (spanDepth[span] <= 0) {
+            return false;
+        }
+        return --spanDepth[span] == 0 && !closed;
+    }
+
+    public void spanEndLight(World world, Object type, int x, int y, int z) {
+        if (!spanEnds(SPAN_LIGHT)) {
+            return;
+        }
+        long start = spanStart[SPAN_LIGHT];
+        long end = System.nanoTime();
+        recordAt(lightAt, Category.LIGHTING, world, type, x, y, z, ownTime(start, end));
+        leave(start, end, spanOuter[SPAN_LIGHT]);
+    }
+
+    public void spanEndPath(Object entity) {
+        if (!spanEnds(SPAN_PATH)) {
+            return;
+        }
+        if (entity == null) {
+            long start = spanStart[SPAN_PATH];
+            leave(start, System.nanoTime(), spanOuter[SPAN_PATH]);
+            return;
+        }
+        record(Category.PATHFINDING, entity, spanStart[SPAN_PATH], spanOuter[SPAN_PATH]);
+    }
+
+    private void resetSpans() {
+        spanDepth[SPAN_LIGHT] = 0;
+        spanDepth[SPAN_PATH] = 0;
+    }
+
+    private void recordAt(Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> places, Category category,
+        World world, Object key, int x, int y, int z, long nanos) {
+        if (!timesThings || world == null || key == null) {
+            return;
+        }
+        IdentityHashMap<Object, HashMap<Long, Node>> byKey = places.get(world);
+        if (byKey == null) {
+            byKey = new IdentityHashMap<>();
+            places.put(world, byKey);
+        }
+        HashMap<Long, Node> byChunk = byKey.get(key);
         if (byChunk == null) {
             byChunk = new HashMap<>();
-            byBlock.put(block, byChunk);
+            byKey.put(key, byChunk);
         }
         long chunk = ((long) (x >> 4) << 32) | ((z >> 4) & 0xFFFFFFFFL);
         Node node = byChunk.get(chunk);
         if (node == null) {
-            node = new Node(Node.INSTANCE, Category.BLOCK_TICKS, block);
+            node = new Node(Node.INSTANCE, category, key);
             node.live = world;
             node.kind = LocationKind.CHUNK;
             node.x = x;
@@ -492,7 +728,7 @@ public final class ProfileSession {
             pending.add(node);
         }
         node.add(nanos, 1, this);
-        hits[Category.BLOCK_TICKS.ordinal()]++;
+        hits[category.ordinal()]++;
     }
 
     /**
@@ -501,7 +737,7 @@ public final class ProfileSession {
      * the things in it no more: what is left of the tick is the server's own work.
      */
     public void recordWorld(World world, long nanos, long nestedBefore) {
-        if (closed) {
+        if (closed || !measuring) {
             return;
         }
         if (timesThings) {
@@ -533,6 +769,10 @@ public final class ProfileSession {
      * timed, outside the worlds and the events) is counted as the rest of the tick.
      */
     public void recordRest(long nanos) {
+        if (!measuring) {
+            // Nothing was measured in this tick: all of it would look like the server's own work.
+            return;
+        }
         long rest = nanos - periodOverhead - nestedNanos;
         if (rest > 0) {
             record(Category.SERVER, ServerPart.REST, rest);
@@ -572,12 +812,22 @@ public final class ProfileSession {
         totalOverhead += overhead;
         nanos -= overhead;
         int bucket = bucketOf(start);
+        resetSpans();
+        if (gc.poll()) {
+            gcMillis[bucket] += gc.lastMillis;
+            gcCounts[bucket] += (int) Math.min(Integer.MAX_VALUE, gc.lastCount);
+        }
         waitNanos[bucket] += Math.min(periodWait, nanos);
         periodWait = 0;
         periods[bucket]++;
+        if (focus == ScanFocus.STEADY) {
+            steadyTickHistogram[SteadyHistogram.bin(nanos)]++;
+        }
         periodNanos[bucket] += nanos;
         periodMax[bucket] = Math.max(periodMax[bucket], nanos);
         totalPeriods++;
+        // In a light scan a measured period stands for the ones left unmeasured until the next.
+        int weight = measuring ? sampleEvery : 1;
         float seconds = (start - startNanos) / 1e9f;
         for (int depth = Node.INSTANCE; depth >= Node.CATEGORY; depth--) {
             List<Node> list = touched[depth];
@@ -587,8 +837,19 @@ public final class ProfileSession {
                 // This mod's own handlers are left out of everything above them, as they are of the report.
                 if (node.parent != null && !(depth >= Node.TYPE && LagFinder.NAME.equals(node.mod))) {
                     node.parent.add(node.periodNanos, node.periodCalls, this);
+                    node.parent.addGtActivity(
+                        node.periodGtActive,
+                        node.periodGtIdle,
+                        node.periodGtActiveCalls,
+                        node.periodGtIdleCalls);
                 }
-                node.finishPeriod(bucket, BUCKETS, seconds, depth == Node.CATEGORY ? Long.MAX_VALUE : spikeNanos);
+                node.finishPeriod(
+                    bucket,
+                    BUCKETS,
+                    seconds,
+                    depth == Node.CATEGORY ? Long.MAX_VALUE : spikeNanos,
+                    focus == ScanFocus.STEADY,
+                    weight);
             }
             list.clear();
         }
@@ -604,12 +865,17 @@ public final class ProfileSession {
             for (Node node : list) {
                 node.periodNanos = 0;
                 node.periodCalls = 0;
+                node.periodGtActive = 0;
+                node.periodGtIdle = 0;
+                node.periodGtActiveCalls = 0;
+                node.periodGtIdleCalls = 0;
                 node.touched = false;
             }
             list.clear();
         }
         periodOverhead = 0;
         nestedNanos = 0;
+        resetSpans();
     }
 
     /** The frame waited this long instead of working: the frame limiter's sleep, or the wait for vsync. */
@@ -671,18 +937,43 @@ public final class ProfileSession {
                     it.remove();
                 }
             }
-            // Unloaded worlds: their block ticks and tile entities let go of them.
-            for (Iterator<Map.Entry<World, IdentityHashMap<Block, HashMap<Long, Node>>>> it = blockTicks.entrySet()
+            // Covers of unloaded or broken blocks: their lines keep what was measured and where.
+            for (Iterator<Map.Entry<TileEntity, Node[]>> it = covers.entrySet()
                 .iterator(); it.hasNext();) {
-                Map.Entry<World, IdentityHashMap<Block, HashMap<Long, Node>>> entry = it.next();
+                Map.Entry<TileEntity, Node[]> entry = it.next();
                 if (describer.isGone(entry.getKey())) {
-                    for (HashMap<Long, Node> byChunk : entry.getValue()
-                        .values()) {
-                        for (Node node : byChunk.values()) {
+                    for (Node node : entry.getValue()) {
+                        if (node != null && node.resolved) {
+                            node.key = null;
                             node.live = null;
                         }
                     }
                     it.remove();
+                }
+            }
+            for (Iterator<Map.Entry<TileEntity, GregTechPipes.Network>> it = gtNetworks.entrySet()
+                .iterator(); it.hasNext();) {
+                if (describer.isGone(
+                    it.next()
+                        .getKey())) {
+                    it.remove();
+                }
+            }
+            // Unloaded worlds: their block ticks and tile entities let go of them.
+            for (Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> places : Arrays
+                .asList(blockTicks, lightAt, neighborsAt)) {
+                for (Iterator<Map.Entry<World, IdentityHashMap<Object, HashMap<Long, Node>>>> it = places.entrySet()
+                    .iterator(); it.hasNext();) {
+                    Map.Entry<World, IdentityHashMap<Object, HashMap<Long, Node>>> entry = it.next();
+                    if (describer.isGone(entry.getKey())) {
+                        for (HashMap<Long, Node> byChunk : entry.getValue()
+                            .values()) {
+                            for (Node node : byChunk.values()) {
+                                node.live = null;
+                            }
+                        }
+                        it.remove();
+                    }
                 }
             }
             for (Iterator<Map.Entry<World, HashMap<Long, Node>>> it = tilesAt.entrySet()
@@ -788,10 +1079,17 @@ public final class ProfileSession {
 
     /** Finds out what new leaves are and puts them in the tree. */
     private void resolvePending() {
-        if (pending.isEmpty()) {
-            return;
+        // Describing a thing can run mod code that is measured too and adds new leaves meanwhile: they wait for the
+        // next round (or the next period), never into the list being walked.
+        for (int round = 0; round < 4 && !pending.isEmpty(); round++) {
+            List<Node> batch = new ArrayList<>(pending);
+            pending.clear();
+            resolve(batch);
         }
-        for (Node leaf : pending) {
+    }
+
+    private void resolve(List<Node> batch) {
+        for (Node leaf : batch) {
             try {
                 describer.describe(leaf);
             } catch (Throwable t) {
@@ -835,7 +1133,6 @@ public final class ProfileSession {
             type.children.put(leaf, leaf);
             leaf.parent = type;
         }
-        pending.clear();
     }
 
     /**
@@ -933,6 +1230,10 @@ public final class ProfileSession {
         Report report = ReportBuilder
             .build(this, roots, periods, periodNanos, periodMax, totalPeriods, end - startNanos, source, knownDims);
         report.focus = focus;
+        if (focus == ScanFocus.STEADY) {
+            report.steadyMedianTickMs = SteadyHistogram.percentile(steadyTickHistogram, totalPeriods, 0.5f);
+            report.steadyP90TickMs = SteadyHistogram.percentile(steadyTickHistogram, totalPeriods, 0.9f);
+        }
         report.spikeMs = spikeMs;
         report.overheadSec = (float) Math.min(totalOverhead / 1e9, report.durationSec * 0.98);
         report.lowestSecond = lowestSecond;
@@ -940,6 +1241,12 @@ public final class ProfileSession {
         report.waitMs = new float[report.buckets()];
         for (int i = 0; i < report.waitMs.length; i++) {
             report.waitMs[i] = report.counts[i] == 0 ? 0 : (float) (waitNanos[i] / report.counts[i] / 1e6);
+        }
+        report.gcMs = new float[report.buckets()];
+        report.gcCount = new int[report.buckets()];
+        for (int i = 0; i < report.gcMs.length; i++) {
+            report.gcMs[i] = (float) gcMillis[i];
+            report.gcCount[i] = gcCounts[i];
         }
         if (lowestSecond >= 0 && lowestSecondBucket >= 0 && report.rate.length > 0) {
             // The graph dips where the worst second was, as low: its lowest point and the lowest rate agree.

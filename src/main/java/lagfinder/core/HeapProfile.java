@@ -192,6 +192,7 @@ public final class HeapProfile {
     }
 
     private static long[] readLongs(DataInputStream in, int count) throws IOException {
+        ReportInput.count(in, count, 32767);
         long[] values = new long[count];
         for (int i = 0; i < count; i++) {
             values[i] = in.readLong();
@@ -204,7 +205,7 @@ public final class HeapProfile {
         heap.maxHeap = in.readLong();
         heap.liveOnly = in.readBoolean();
         heap.allocKnown = in.readBoolean();
-        int buckets = in.readShort();
+        int buckets = ReportInput.count(in, in.readShort(), 32767);
         heap.heapLowMb = new float[buckets];
         heap.heapHighMb = new float[buckets];
         heap.heapMb = new float[buckets];
@@ -221,7 +222,7 @@ public final class HeapProfile {
             heap.gcCount[i] = in.readShort();
             heap.gcMs[i] = in.readFloat();
         }
-        int snapshots = in.readShort();
+        int snapshots = ReportInput.count(in, in.readShort(), 32767);
         heap.snapshotSec = new float[snapshots];
         heap.snapshotPauseMs = new float[snapshots];
         heap.totalInstances = new long[snapshots];
@@ -237,13 +238,13 @@ public final class HeapProfile {
         if (in.readBoolean()) {
             heap.histogramError = in.readUTF();
         }
-        int mods = in.readShort();
+        int mods = ReportInput.count(in, in.readShort(), 32767);
         for (int i = 0; i < mods; i++) {
             heap.mods.add(in.readUTF());
             heap.modInstances.add(readLongs(in, snapshots));
             heap.modBytes.add(readLongs(in, snapshots));
         }
-        int classes = in.readInt();
+        int classes = ReportInput.count(in, in.readInt(), 200_000);
         for (int i = 0; i < classes; i++) {
             HeapClass type = new HeapClass();
             type.name = in.readUTF();

@@ -6,7 +6,6 @@ import net.minecraft.client.gui.GuiButton;
 import net.minecraft.client.resources.I18n;
 
 import lagfinder.Tags;
-import lagfinder.client.ClientScanner;
 import lagfinder.client.ReportStore;
 import lagfinder.client.gui.ui.Icons;
 import lagfinder.client.gui.ui.ScaledScreen;
@@ -24,7 +23,7 @@ public abstract class GuiWindow extends ScaledScreen {
     public static final int WIDTH = 560, HEIGHT = 392;
     /** Width of the menu of tabs. */
     protected static final int MENU = 84;
-    private static final int TAB_HEIGHT = 22, TAB_GAP = 3;
+    private static final int TAB_HEIGHT = 25, TAB_GAP = 0;
     /** The header's close button; the tabs' own buttons take other ids. */
     protected static final int ID_CLOSE = 900;
 
@@ -182,14 +181,13 @@ public abstract class GuiWindow extends ScaledScreen {
     public final void drawScaled(int mouseX, int mouseY, float partialTicks) {
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(left, top, left + WIDTH, top + HEIGHT);
-        int pillRight = left + WIDTH - WindowHeader.CLOSE_ROOM;
-        int pillLeft = drawServerPill(pillRight);
+        Theme.fill(left + MENU + 1, top + WindowHeader.HEIGHT, left + WIDTH - 1, top + HEIGHT - 1, Theme.CONTENT);
         WindowHeader.draw(
             fontRendererObj,
             left,
             top,
             left + WIDTH,
-            pillLeft,
+            left + WIDTH - WindowHeader.CLOSE_ROOM,
             Icons.STATS,
             "LagFinder",
             I18n.format("lagfinder.gui.subtitle"),
@@ -205,27 +203,9 @@ public abstract class GuiWindow extends ScaledScreen {
         }
     }
 
-    /** Whether the server has the mod, with a light: green when it does. Returns where the pill starts. */
-    private int drawServerPill(int right) {
-        ClientScanner scanner = ClientScanner.INSTANCE;
-        boolean ok = scanner.serverHasMod();
-        String text = I18n.format(ok ? "lagfinder.gui.server_ok" : "lagfinder.gui.client_only");
-        int width = 6 + 7 + 5 + fontRendererObj.getStringWidth(text) + 6 + 5 + 6;
-        int x0 = right - 4 - width, y0 = top + 7, x1 = right - 4, y1 = top + 23;
-        Theme.gradient(x0, y0, x1, y1, 0xFF1D232C, 0xFF171C23);
-        Theme.outline(x0, y0, x1, y1, Theme.BORDER);
-        Icons.draw(ok ? Icons.SMALL_GRID : Icons.SMALL_FRAME, x0 + 6, y0 + 4, Theme.TEXT_MUTED);
-        fontRendererObj.drawString(text, x0 + 18, y0 + 4, Theme.TEXT);
-        int light = ok ? Theme.SUCCESS : Theme.WARN;
-        double cx = x1 - 8.5, cy = y0 + 8;
-        Theme.disc(cx, cy, 3.5, light & 0x40FFFFFF);
-        Theme.disc(cx, cy, 2.5, light);
-        return x0;
-    }
-
     private void drawMenu(int mouseX, int mouseY) {
         int x0 = left + 1, x1 = left + MENU, y0 = top + WindowHeader.HEIGHT, y1 = top + HEIGHT - 1;
-        Theme.gradient(x0, y0, x1, y1, 0x30000000, 0x50000000);
+        Theme.fill(x0, y0, x1, y1, Theme.WINDOW);
         Theme.fill(x1, y0, x1 + 1, y1, Theme.BORDER);
         Tab hovered = tabAt(mouseX, mouseY);
         for (Tab tab : Tab.values()) {
@@ -233,30 +213,23 @@ public abstract class GuiWindow extends ScaledScreen {
             boolean chosen = tab == tab();
             double lit = tabLight[tab.ordinal()].update(tab == hovered ? 1 : 0, 22);
             if (chosen) {
-                Draw.horizontalGradient(
-                    x0,
-                    y,
-                    x1,
-                    y + TAB_HEIGHT,
-                    Theme.blend(0xFF1B2028, Theme.ACCENT, 0.28),
-                    Theme.blend(0xFF1B2028, Theme.ACCENT, 0.1));
-                Theme.fill(x0, y, x0 + 2, y + TAB_HEIGHT, Theme.ACCENT);
-                Theme.fill(x0, y, x1, y + 1, Theme.blend(Theme.BORDER, Theme.ACCENT, 0.4));
-                Theme.fill(x0, y + TAB_HEIGHT - 1, x1, y + TAB_HEIGHT, Theme.blend(Theme.BORDER, Theme.ACCENT, 0.4));
+                Theme.fill(x0, y, x1, y + TAB_HEIGHT, Theme.SELECTED);
+                Theme.fill(x0, y, x0 + 2, y + TAB_HEIGHT, Theme.ACCENT_FILL);
             } else if (lit > 0.01) {
-                Theme.fill(x0, y, x1, y + TAB_HEIGHT, Theme.blend(0x00FFFFFF, Theme.ROW_HOVER, lit));
+                Theme.fill(x0, y, x1, y + TAB_HEIGHT, Theme.blend(0x00FFFFFF, 0x14FFFFFF, lit));
             }
-            int iconColor = chosen ? Theme.ACCENT : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
+            int iconColor = chosen ? Theme.ACCENT : Theme.blend(0xFF98A6BA, Theme.TEXT, lit);
             int iconWidth = Icons.width(tab.icon);
             Icons.draw(tab.icon, x0 + 8 + (11 - iconWidth) / 2, y + (TAB_HEIGHT - tab.icon.length) / 2, iconColor);
-            int textColor = chosen ? Theme.TEXT : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, lit);
+            int textColor = chosen ? Theme.TEXT : Theme.blend(0xFFB8C4D6, Theme.TEXT, lit);
             int room = x1 - x0 - 24 - 4;
             String count = tab == Tab.LOGS && savedCount > 0 ? String.valueOf(savedCount) : null;
             if (count != null) {
                 int countWidth = fontRendererObj.getStringWidth(count) + 6;
                 int cx1 = x1 - 5, cx0 = cx1 - countWidth;
-                Theme.fill(cx0, y + 6, cx1, y + TAB_HEIGHT - 6, chosen ? Theme.ACCENT_DIM : Theme.CONTROL);
-                fontRendererObj.drawString(count, cx0 + 3, y + 7, chosen ? Theme.TEXT : Theme.TEXT_MUTED);
+                int cy0 = y + (TAB_HEIGHT - 12) / 2;
+                Theme.roundRect(cx0, cy0, cx1, cy0 + 12, chosen ? Theme.ACCENT_DIM : 0xFF1F2E47);
+                fontRendererObj.drawString(count, cx0 + 3, cy0 + 2, chosen ? Theme.TEXT : Theme.TEXT_MUTED);
                 room -= countWidth + 3;
             }
             fontRendererObj.drawString(
@@ -267,7 +240,7 @@ public abstract class GuiWindow extends ScaledScreen {
         }
         String version = "v" + Tags.VERSION;
         fontRendererObj
-            .drawString(Theme.ellipsize(fontRendererObj, version, MENU - 12), x0 + 8, y1 - 12, Theme.TEXT_DISABLED);
+            .drawString(Theme.ellipsize(fontRendererObj, version, MENU - 12), x0 + 8, y1 - 12, Theme.TEXT_MUTED);
     }
 
     /**
@@ -275,9 +248,11 @@ public abstract class GuiWindow extends ScaledScreen {
      * box's own content starts 20 pixels under its top.
      */
     protected void section(int x0, int y0, int x1, int y1, String[] icon, String title) {
-        Theme.gradient(x0, y0, x1, y1, 0xFF181D25, 0xFF141920);
-        Theme.outline(x0, y0, x1, y1, Theme.BORDER);
-        Theme.fill(x0 + 1, y0 + 1, x1 - 1, y0 + 2, Theme.SHEEN);
+        section(x0, y0, x1, y1, icon, title, null);
+    }
+
+    protected void section(int x0, int y0, int x1, int y1, String[] icon, String title, String subtitle) {
+        Theme.card(x0, y0, x1, y1);
         int textX;
         if (icon == null) {
             Theme.fill(x0 + 7, y0 + 6, x0 + 9, y0 + 14, Theme.ACCENT);
@@ -288,6 +263,13 @@ public abstract class GuiWindow extends ScaledScreen {
         }
         String text = Theme.ellipsize(fontRendererObj, title.toUpperCase(), x1 - 8 - textX);
         fontRendererObj.drawString(text, textX, y0 + 6, Theme.TEXT);
+        if (subtitle != null) {
+            fontRendererObj.drawString(
+                Theme.ellipsize(fontRendererObj, subtitle, x1 - 8 - textX),
+                textX,
+                y0 + 16,
+                Theme.TEXT_MUTED);
+        }
     }
 
     /** A tooltip: its first line bright, the others (after "\n") muted. */

@@ -11,30 +11,38 @@ import lagfinder.client.gui.Draw;
 /** Colors and drawing helpers of the flat, minimal look shared by all LagFinder screens. */
 public final class Theme {
 
-    public static final int SCREEN_DIM = 0xC0080A0D;
-    public static final int PANEL = 0xF0161A20;
-    public static final int PANEL_ALT = 0xF01C2129;
-    public static final int BORDER = 0xFF2A313B;
-    public static final int CONTROL = 0xFF222831;
-    public static final int CONTROL_HOVER = 0xFF2C3440;
-    public static final int CONTROL_DISABLED = 0xFF1A1E24;
-    public static final int ACCENT = 0xFF4C9AFF;
-    public static final int ACCENT_DIM = 0xFF2B5A96;
+    public static final int SCREEN_DIM = 0xC0050A12;
+    public static final int PANEL = 0xF00D1728;
+    public static final int PANEL_ALT = 0xF0122036;
+    public static final int BORDER = 0xFF1F3150;
+    public static final int CONTROL = 0xFF111F35;
+    public static final int CONTROL_HOVER = 0xFF182B4A;
+    public static final int CONTROL_DISABLED = 0xFF0E1829;
+    public static final int ACCENT = 0xFF4D9CFF;
+    public static final int ACCENT_DIM = 0xFF1F6FE0;
     public static final int DANGER = 0xFFE5534B;
     public static final int SUCCESS = 0xFF3FB950;
-    public static final int TEXT = 0xFFE6EAF0;
-    public static final int TEXT_MUTED = 0xFF8A93A0;
-    public static final int TEXT_DISABLED = 0xFF555D68;
+    public static final int TEXT = 0xFFE6EDF7;
+    public static final int TEXT_MUTED = 0xFF8D9DB5;
+    public static final int TEXT_DISABLED = 0xFF4B5B74;
     public static final int ROW_HOVER = 0x20FFFFFF;
-    public static final int LABEL_BG = 0xC0101418;
+    public static final int LABEL_BG = 0xC00A1322;
     public static final int WARN = 0xFFF2C14E;
     public static final int ORANGE = 0xFFFF8C42;
     /** The inside of the boxes in a window (lists, graphs, details), a little darker than the window. */
-    public static final int CARD = 0xFF12161B;
+    public static final int CARD = 0xFF0B1526;
     /** The line picked in a list. */
-    public static final int SELECTED = 0xFF1E2C40;
+    public static final int SELECTED = 0xFF15294A;
     /** A faint light along the top edge of raised things, as if lit from above. */
     public static final int SHEEN = 0x10FFFFFF;
+    public static final int FRAME = 0xFF243650;
+    public static final int WINDOW = 0xFF0A1322;
+    public static final int CONTENT = 0xFF0C1729;
+    public static final int BOX = 0xFF0F1B2F;
+    public static final int BOX_BORDER = 0xFF1C2D47;
+    public static final int ACCENT_FILL = 0xFF2F7CF0;
+    public static final int ACCENT_EDGE = 0xFF4A90FF;
+    public static final int TRACK = 0xFF1C2C46;
 
     private Theme() {}
 
@@ -53,15 +61,37 @@ public final class Theme {
     /** A window: a soft shadow around it, its body a little lighter at the top, and a thin border. */
     public static void panel(int x0, int y0, int x1, int y1) {
         shadow(x0, y0, x1, y1, 6);
-        gradient(x0, y0, x1, y1, 0xF41A1F27, 0xF2131820);
-        outline(x0, y0, x1, y1, BORDER);
-        fill(x0 + 1, y0 + 1, x1 - 1, y0 + 2, SHEEN);
+        roundRect(x0, y0, x1, y1, 0xF60B1424);
+        roundOutline(x0, y0, x1, y1, FRAME);
     }
 
     /** A box inside a window (a list, a graph, details): sunk a little, with a thin border. */
     public static void card(int x0, int y0, int x1, int y1) {
-        gradient(x0, y0, x1, y1, 0xFF13171D, 0xFF101318);
-        outline(x0, y0, x1, y1, BORDER);
+        roundRect(x0, y0, x1, y1, BOX);
+        roundOutline(x0, y0, x1, y1, BOX_BORDER);
+    }
+
+    public static void roundRect(int x0, int y0, int x1, int y1, int color) {
+        fill(x0 + 1, y0, x1 - 1, y1, color);
+        fill(x0, y0 + 1, x0 + 1, y1 - 1, color);
+        fill(x1 - 1, y0 + 1, x1, y1 - 1, color);
+    }
+
+    public static void roundOutline(int x0, int y0, int x1, int y1, int color) {
+        fill(x0 + 1, y0, x1 - 1, y0 + 1, color);
+        fill(x0 + 1, y1 - 1, x1 - 1, y1, color);
+        fill(x0, y0 + 1, x0 + 1, y1 - 1, color);
+        fill(x1 - 1, y0 + 1, x1, y1 - 1, color);
+    }
+
+    public static void roundBox(int x0, int y0, int x1, int y1, int background, int border) {
+        roundRect(x0 + 1, y0 + 1, x1 - 1, y1 - 1, background);
+        roundOutline(x0, y0, x1, y1, border);
+    }
+
+    public static void checkCircle(int x, int y, int color, int mark) {
+        disc(x + 5, y + 5, 5.5, color);
+        Icons.draw(Icons.SMALL_CHECK, x + 2, y + 2, mark);
     }
 
     /** A shadow fading out {@code size} GUI pixels around the rectangle, darkest at its edges. */

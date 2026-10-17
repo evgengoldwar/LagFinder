@@ -47,6 +47,12 @@ delete it (click again to confirm), or delete all shown at once; **Open folder**
   controller is (or that it has none) and how many nodes it has. Under it, the machines it ticked by kind (interfaces,
   import/export buses, molecular assemblers, add-ons' parts...) with their places, to open as cards, teleport to and
   highlight, and the network's own work: channels, crafting, storage, energy...
+- **Networks: pipes, cables, ME** (with GregTech, EnderIO or AE2 on the server): a summary by network. Every network
+  of GregTech cables, item pipes and fluid pipes, every EnderIO conduit network (energy, items, fluids, redstone,
+  ME...) and every AE2 ME network (all its cables and devices) is a card of its own with all the network took - its own tick, its pipes' ticks, item route searches, energy sent into
+  it - and how many blocks it has; its highlight outlines all of them. The pipes themselves keep their time in Tile
+  Entities, pipe by pipe (and ME networks in AE2 Networks, device by device and channels, crafting, storage...), so
+  this tab is a second look at the same time, like Worlds, and is not added to the others.
 - A tree per tab: **mod → kind (e.g. Electric Blast Furnace)**, with the average time per tick and the worst single
   tick. Each kind with things in the world has a button with how many there are (e.g. 10 spawners): it opens them
   all as cards. Sort by average, by peak or by how often it spiked, and search by mod, name, class or coordinates
@@ -136,7 +142,19 @@ bytes add up to about all the game allocated. It costs very little and never sto
 The Flight Recorder needs Java 16 or later (GTNH on Java 17+). On older Java the scanned thread's stack is sampled
 instead, with the bytes it allocated in between: who allocates shows roughly, but not what type of objects.
 
-Reports are saved in `.minecraft/lagfinder/reports` (the last 50) and can be reopened or deleted from **Logs**.
+Server reports are saved in `lagfinder/reports` relative to the server's working directory (the last 50).
+In **Logs**, switch from **Local reports** to **Shared server reports** to open and analyse the shared archive.
+The server permits archive access only to operators (including the single player owner) or members of ServerUtilities
+ranks whose ID starts with `lagfinder_`, including inherited ranks. Shared reports are read-only in the client.
+
+Client reports and combined **Both** reports stay in `.minecraft/lagfinder/reports` (the last 50); a Both scan also
+keeps its original server report in the shared archive. Local reports can be reopened or deleted from **Logs**.
+Existing local server reports remain readable there; they are not automatically uploaded to the server.
+Steady Load comparison can use both existing local reports and the shared server archive.
+
+Archive requests and transfers are bounded: at most 50 catalog entries, 30,000 bytes per packet, 64 MiB per compressed
+report and 128 MiB after decompression. Invalid filenames, links, missing or corrupt reports are rejected. Archive
+permissions are checked again after disk reads and on every tick of an active transfer.
 
 ## Config
 

@@ -19,6 +19,8 @@ public class FlatButton extends GuiButton {
      * widest one's, so the icons are centered on one line and the text starts at the same place.
      */
     public int iconSlot;
+    public boolean segment;
+    public boolean outlined;
     /** How lit the button is by the mouse, fading in and out. */
     private final Smooth hover = new Smooth(0);
 
@@ -50,7 +52,8 @@ public class FlatButton extends GuiButton {
         boolean hovered = enabled && isMouseOver(mouseX, mouseY);
         drawBackground(hovered);
 
-        int color = !enabled ? Theme.TEXT_DISABLED : danger ? Theme.DANGER : Theme.TEXT;
+        int color = !enabled ? Theme.TEXT_DISABLED
+            : danger ? Theme.DANGER : active && outlined ? 0xFF6FB0FF : Theme.TEXT;
         if (icon != null) {
             int shade;
             if (!enabled) {
@@ -76,41 +79,38 @@ public class FlatButton extends GuiButton {
     /** The box: lit by the mouse with a short fade, in the accent color when active. */
     protected void drawBackground(boolean hovered) {
         double lit = hover.update(hovered ? 1 : 0, 22);
+        int x1 = xPosition + width, y1 = yPosition + height;
+        if (segment && !active) {
+            if (enabled && lit > 0.01) {
+                Theme.fill(
+                    xPosition + 1,
+                    yPosition + 1,
+                    x1 - 1,
+                    y1 - 1,
+                    Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit));
+            }
+            return;
+        }
         int background, border;
         if (!enabled) {
             background = Theme.CONTROL_DISABLED;
             border = Theme.BORDER;
-        } else if (active) {
-            background = Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, lit);
+        } else if (active && outlined) {
+            background = Theme.blend(0xFF13305C, 0xFF183A6E, lit);
             border = Theme.ACCENT;
+        } else if (active) {
+            background = Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT_FILL, 0.5 + 0.5 * lit);
+            border = Theme.ACCENT_EDGE;
         } else if (danger) {
             background = Theme.blend(Theme.CONTROL, 0xFF3A2326, lit);
             border = Theme.blend(Theme.BORDER, Theme.DANGER, lit);
         } else {
             background = Theme.blend(Theme.CONTROL, Theme.CONTROL_HOVER, lit);
-            border = Theme.blend(Theme.BORDER, Theme.ACCENT, lit);
+            border = Theme.blend(0xFF2A3D5C, 0xFF3A5A88, lit);
         }
-        int x1 = xPosition + width, y1 = yPosition + height;
-        if (enabled && (active || lit > 0.01)) {
-            Theme.glow(
-                xPosition,
-                yPosition,
-                x1,
-                y1,
-                danger && !active ? Theme.DANGER : Theme.ACCENT,
-                active ? 0.5 + 0.5 * lit : lit * 0.6);
+        if (enabled && !segment && lit > 0.01) {
+            Theme.glow(xPosition, yPosition, x1, y1, danger && !active ? Theme.DANGER : Theme.ACCENT, lit * 0.4);
         }
-        // A little lighter at the top, as if lit from above.
-        Theme.gradient(
-            xPosition,
-            yPosition,
-            x1,
-            y1,
-            Theme.blend(background, 0xFFFFFFFF, enabled ? 0.06 : 0),
-            Theme.blend(background, 0xFF000000, 0.12));
-        Theme.outline(xPosition, yPosition, x1, y1, border);
-        if (enabled) {
-            Theme.fill(xPosition + 1, yPosition + 1, x1 - 1, yPosition + 2, Theme.SHEEN);
-        }
+        Theme.roundBox(xPosition, yPosition, x1, y1, background, border);
     }
 }

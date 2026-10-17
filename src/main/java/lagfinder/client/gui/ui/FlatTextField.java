@@ -64,8 +64,13 @@ public class FlatTextField extends GuiTextField {
             Theme.glow(boxX, boxY, boxX + boxWidth, boxY + boxHeight, Theme.ACCENT, 0.6);
         }
         // Sunk into the window: darker at the top.
-        Theme.gradient(boxX, boxY, boxX + boxWidth, boxY + boxHeight, 0xFF0A0D10, 0xFF11151A);
-        Theme.outline(boxX, boxY, boxX + boxWidth, boxY + boxHeight, isFocused() ? Theme.ACCENT : Theme.BORDER);
+        Theme.roundBox(
+            boxX,
+            boxY,
+            boxX + boxWidth,
+            boxY + boxHeight,
+            0xFF0A1424,
+            isFocused() ? Theme.ACCENT : 0xFF2A3D5C);
         if (getText().isEmpty() && !isFocused() && !hint.isEmpty()) {
             font.drawString(
                 Theme.ellipsize(font, hint, boxWidth - 8),

@@ -1,7 +1,11 @@
 package lagfinder.compat;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
@@ -15,6 +19,7 @@ import appeng.api.networking.IGridNode;
 import appeng.api.util.DimensionalCoord;
 import lagfinder.core.LocationKind;
 import lagfinder.core.Node;
+import lagfinder.core.ReportEntry;
 
 /**
  * Says what an AE2 network's ticks were spent on: each network is a line of its own (where its controller is and how
@@ -51,18 +56,59 @@ public final class Ae2Networks {
         }
     }
 
-    /**
-     * The network's line, the same all scan long: where its controller is (the lowest one of them; where it was seen
-     * from when it has none) and how many nodes it had when first seen.
-     */
-    private static String networkName(IGrid grid, Map<Object, String> names) {
-        String name = names.get(grid);
-        if (name != null) {
-            return name;
+    public static void describeGrid(Node leaf, Object network) {
+        IGrid grid = (IGrid) network;
+        leaf.mod = "Applied Energistics 2";
+        leaf.typeKey = "lagfinder:ae2_network";
+        leaf.name = "ME networks";
+        leaf.translationKey = "lagfinder.pipes.ae2";
+        leaf.detail = "Grid.update, TickManagerCache.onUpdateTick";
+        DimensionalCoord at = controllerOf(grid);
+        boolean controller = at != null;
+        List<DimensionalCoord> places = new ArrayList<>();
+        try {
+            for (IGridNode node : grid.getNodes()) {
+                IGridBlock block = node.getGridBlock();
+                DimensionalCoord c = block != null ? block.getLocation() : null;
+                if (c != null) {
+                    places.add(c);
+                    if (at == null) {
+                        at = c;
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+            places.clear();
         }
+        if (at != null) {
+            leaf.kind = LocationKind.BLOCK;
+            leaf.dim = at.getDimension();
+            leaf.x = at.x;
+            leaf.y = at.y;
+            leaf.z = at.z;
+        }
+        Set<Long> seen = new HashSet<>();
+        List<int[]> parts = new ArrayList<>();
+        for (DimensionalCoord c : places) {
+            if (at != null && c.getDimension() != at.getDimension() || parts.size() >= ReportEntry.MAX_PARTS) {
+                continue;
+            }
+            long key = ((long) c.x & 0x3FFFFFFL) << 38 | ((long) c.z & 0x3FFFFFFL) << 12 | (c.y & 0xFFFL);
+            if (seen.add(key)) {
+                parts.add(new int[] { c.x, c.y, c.z });
+            }
+        }
+        leaf.parts = new int[parts.size() * 3];
+        for (int i = 0; i < parts.size(); i++) {
+            System.arraycopy(parts.get(i), 0, leaf.parts, i * 3, 3);
+        }
+        int nodes = places.size();
+        leaf.label = nodes + (nodes == 1 ? " node" : " nodes") + (controller ? "" : " · no controller");
+    }
+
+    private static DimensionalCoord controllerOf(IGrid grid) {
         DimensionalCoord at = null;
         try {
-            // By name: the controller's class has GregTech's interfaces on it, not needed to compile.
             Class<? extends IGridHost> controllers = Class
                 .forName("appeng.tile.networking.TileController", false, Ae2Networks.class.getClassLoader())
                 .asSubclass(IGridHost.class);
@@ -74,8 +120,21 @@ public final class Ae2Networks {
                 }
             }
         } catch (Throwable ignored) {
-            // Named from its pivot instead.
+            return null;
         }
+        return at;
+    }
+
+    /**
+     * The network's line, the same all scan long: where its controller is (the lowest one of them; where it was seen
+     * from when it has none) and how many nodes it had when first seen.
+     */
+    private static String networkName(IGrid grid, Map<Object, String> names) {
+        String name = names.get(grid);
+        if (name != null) {
+            return name;
+        }
+        DimensionalCoord at = controllerOf(grid);
         boolean controller = at != null;
         if (at == null && grid.getPivot() != null) {
             try {

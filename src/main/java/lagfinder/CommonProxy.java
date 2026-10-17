@@ -37,4 +37,8 @@ public class CommonProxy {
 
     /** A part of a report arrived (network thread); only the client cares. */
     public void onReportPart(Net.ReportPart part) {}
+
+    public void onArchiveCatalog(Net.ArchiveCatalog catalog) {}
+
+    public void onArchivePart(Net.ArchivePart part) {}
 }

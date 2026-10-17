@@ -240,7 +240,7 @@ public final class AllocationProfile {
     }
 
     private static void readGroups(DataInputStream in, List<Group> groups, int buckets) throws IOException {
-        int count = in.readInt();
+        int count = ReportInput.count(in, in.readInt(), 200_000);
         for (int i = 0; i < count; i++) {
             Group group = new Group();
             group.name = in.readUTF();
@@ -250,6 +250,7 @@ public final class AllocationProfile {
             group.samples = in.readInt();
             group.targetSamples = in.readInt();
             if (in.readBoolean()) {
+                ReportInput.count(in, buckets * 2, 65534);
                 group.timeline = new float[buckets];
                 group.targetTimeline = new float[buckets];
                 for (int b = 0; b < buckets; b++) {
@@ -275,32 +276,32 @@ public final class AllocationProfile {
         if (version >= 6) {
             profile.recordedFromSec = in.readFloat();
         }
-        int buckets = in.readShort();
+        int buckets = ReportInput.count(in, in.readShort(), 32767);
         profile.allMb = new float[buckets];
         profile.targetMb = new float[buckets];
         for (int i = 0; i < buckets; i++) {
             profile.allMb[i] = in.readFloat();
             profile.targetMb[i] = in.readFloat();
         }
-        int mods = in.readShort();
+        int mods = ReportInput.count(in, in.readShort(), 32767);
         for (int i = 0; i < mods; i++) {
             profile.mods.add(in.readUTF());
         }
         readGroups(in, profile.types, buckets);
         readGroups(in, profile.creators, buckets);
-        int strings = in.readInt();
+        int strings = ReportInput.count(in, in.readInt(), 200_000);
         String[] table = new String[strings];
         for (int i = 0; i < strings; i++) {
             table[i] = in.readUTF();
         }
-        int sites = in.readInt();
+        int sites = ReportInput.count(in, in.readInt(), 200_000);
         for (int i = 0; i < sites; i++) {
             Site site = new Site();
-            site.type = in.readInt();
-            site.creator = in.readInt();
-            site.method = table[in.readInt()];
+            site.type = ReportInput.index(in.readInt(), profile.types.size());
+            site.creator = ReportInput.index(in.readInt(), profile.creators.size());
+            site.method = table[ReportInput.index(in.readInt(), table.length)];
             site.line = in.readInt();
-            site.via = table[in.readInt()];
+            site.via = table[ReportInput.index(in.readInt(), table.length)];
             site.bytes = in.readLong();
             site.targetBytes = in.readLong();
             site.samples = in.readInt();

@@ -7,14 +7,14 @@ import net.minecraftforge.common.config.Property;
 
 public class Config {
 
-    /** Only operators may scan ticks and teleport (the owner of a single player world always may). */
-    public static boolean requireOp = true;
     public static boolean allowTeleport = true;
     /** Longest scan a player may ask for (seconds). */
     public static int maxScanSeconds = 600;
     /** A tick (or frame) in which one thing took at least this long counts as a spike for it (ms). */
     public static float spikeTpsMs = 2.5f;
     public static float spikeFpsMs = 1.0f;
+    /** A light tick scan measures one tick in this many; the others run without measuring. */
+    public static int lightScanEvery = 4;
     /** How often a Methods scan samples the scanned thread's stack (ms). */
     public static int sampleIntervalMs = 5;
     /** How many times an Objects scan counts the objects in the heap by class, only those in use. */
@@ -24,6 +24,9 @@ public class Config {
     public static int allocSampleRate = 500;
     /** How long a highlight stays in the world (seconds). */
     public static int highlightSeconds = 120;
+    public static int worldMsRadius = 16;
+    public static int worldMsMaxLabels = 36;
+    public static float worldMsMinMs = 0.01f;
 
     /** The file the settings were read from, to write the ones changed in the game back to it. */
     private static Configuration configuration;
@@ -31,11 +34,6 @@ public class Config {
     public static void synchronizeConfiguration(File configFile) {
         configuration = new Configuration(configFile);
 
-        requireOp = configuration.getBoolean(
-            "requireOp",
-            "server",
-            requireOp,
-            "Only operators may run tick scans. The owner of a single player world always may.");
         allowTeleport = configuration.getBoolean(
             "allowTeleport",
             "server",
@@ -57,6 +55,13 @@ public class Config {
             0.01f,
             1000f,
             "A frame in which one thing took at least this long (ms) counts as a spike for it.");
+        lightScanEvery = configuration.getInt(
+            "lightScanEvery",
+            "scan",
+            lightScanEvery,
+            2,
+            20,
+            "A light tick scan measures one tick in this many and lets the others run untouched: the server barely slows down and averages stay right, but a single short spike can fall between measured ticks.");
         sampleIntervalMs = configuration.getInt(
             "sampleIntervalMs",
             "scan",
@@ -91,6 +96,28 @@ public class Config {
             3600,
             "How long a highlight stays in the world.");
 
+        worldMsRadius = configuration.getInt(
+            "worldMsRadius",
+            "client",
+            worldMsRadius,
+            4,
+            48,
+            "How far world millisecond labels are drawn, in blocks.");
+        worldMsMaxLabels = configuration.getInt(
+            "worldMsMaxLabels",
+            "client",
+            worldMsMaxLabels,
+            1,
+            96,
+            "Maximum nearby machine time labels shown in the world.");
+        worldMsMinMs = configuration.getFloat(
+            "worldMsMinMs",
+            "client",
+            worldMsMinMs,
+            0f,
+            10f,
+            "Minimum average milliseconds per tick for a nearby label. The block under the crosshair is always shown if measured.");
+
         if (configuration.hasChanged()) {
             configuration.save();
         }
@@ -101,7 +128,6 @@ public class Config {
         if (configuration == null) {
             return;
         }
-        put("server", "requireOp", requireOp);
         put("server", "allowTeleport", allowTeleport);
         put("server", "maxScanSeconds", maxScanSeconds);
         put("scan", "spikeTpsMs", spikeTpsMs);

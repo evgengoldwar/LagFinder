@@ -2,8 +2,6 @@ package lagfinder.client.gui.ui;
 
 import net.minecraft.client.gui.FontRenderer;
 
-import lagfinder.client.gui.Draw;
-
 /**
  * The header across the top of a window, the same on every screen of the mod: the window's icon in the accent color,
  * its title with a muted line under it, an optional pill on the right (a count, a color, a size) and a close button,
@@ -57,7 +55,9 @@ public final class WindowHeader {
      * done button, so it does the same.
      */
     public static IconButton closeButton(int id, int right, int top) {
-        return new IconButton(id, right - 26, top + 7, Icons.CLOSE, "");
+        IconButton button = new IconButton(id, right - 26, top + 7, Icons.CLOSE, "");
+        button.bare = true;
+        return button;
     }
 
     /**
@@ -70,15 +70,12 @@ public final class WindowHeader {
      */
     public static void draw(FontRenderer font, int left, int top, int right, int textRight, String[] icon, String title,
         String subtitle, int subtitleColor, String pill) {
-        Theme.gradient(left + 1, top + 1, right - 1, top + HEIGHT - 1, 0xFF222934, 0xFF1A2029);
-        Theme.fill(left + 1, top + 1, right - 1, top + 2, Theme.SHEEN);
+        Theme.fill(left + 1, top + 1, right - 1, top + HEIGHT - 1, Theme.WINDOW);
         Theme.fill(left + 1, top + HEIGHT - 1, right - 1, top + HEIGHT, Theme.BORDER);
 
-        // The window's icon, in the accent color on a badge tinted with it.
-        Theme.gradient(left + 6, top + 6, left + 24, top + 24, 0xFF22344D, 0xFF1A2639);
-        Theme.outline(left + 6, top + 6, left + 24, top + 24, 0xFF2E4A70);
+        Theme.roundBox(left + 6, top + 6, left + 24, top + 24, 0xFF13305C, 0xFF3B7FE0);
         int iconX = left + 15 - Icons.width(icon) / 2, iconY = top + 15 - icon.length / 2;
-        Icons.draw(icon, iconX, iconY, Theme.ACCENT);
+        Icons.draw(icon, iconX, iconY, 0xFF6DB2FF);
 
         int textLeft = left + 30;
         if (pill != null) {
@@ -93,19 +90,6 @@ public final class WindowHeader {
         font.drawStringWithShadow(shownTitle, textLeft, titleY, Theme.TEXT);
         if (subtitle != null) {
             drawSubtitle(font, subtitle, textLeft, top + 17, room, subtitleColor);
-        }
-        // The line under the header: in the accent color under the title, fading out after it.
-        int accentRight = Math.min(right - 1, textLeft + font.getStringWidth(shownTitle) + 4);
-        Theme.fill(left + 1, top + HEIGHT - 1, accentRight, top + HEIGHT, Theme.ACCENT);
-        int fadeRight = Math.min(right - 1, accentRight + 80);
-        if (fadeRight > accentRight) {
-            Draw.horizontalGradient(
-                accentRight,
-                top + HEIGHT - 1,
-                fadeRight,
-                top + HEIGHT,
-                Theme.ACCENT,
-                Theme.ACCENT & 0x00FFFFFF);
         }
     }
 }

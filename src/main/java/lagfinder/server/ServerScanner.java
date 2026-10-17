@@ -25,6 +25,7 @@ import lagfinder.LagFinder;
 import lagfinder.core.Describer;
 import lagfinder.core.ProfileSession;
 import lagfinder.core.Report;
+import lagfinder.core.ReportFiles;
 import lagfinder.core.ScanFocus;
 import lagfinder.core.ScanMode;
 import lagfinder.network.Net;
@@ -66,7 +67,7 @@ public final class ServerScanner {
      * Counts the servers this one ran: a report made for a server that stopped meanwhile (the player left the world) is
      * never sent on the next one.
      */
-    private int generation;
+    private volatile int generation;
     /**
      * Players with the mod (they asked for the state): told when a scan starts or ends, so none waits on a stale one.
      */
@@ -86,7 +87,7 @@ public final class ServerScanner {
 
     /** Whether the player may scan: the owner of a single player world always, others as operators. */
     public static boolean canScan(EntityPlayerMP player) {
-        return !Config.requireOp && MinecraftServer.getServer() != null || isOperator(player);
+        return player != null && (isOperator(player) || ServerUtilitiesAccess.allowed(player));
     }
 
     /** The owner of a single player world, or an operator. */
@@ -99,7 +100,8 @@ public final class ServerScanner {
             .equals(server.getServerOwner())) {
             return true;
         }
-        return player.canCommandSenderUseCommand(2, "lagfinder");
+        return server.getConfigurationManager()
+            .func_152596_g(player.getGameProfile());
     }
 
     /**
@@ -111,9 +113,9 @@ public final class ServerScanner {
     }
 
     /** Whether the player is still on the server (a task runs a tick after it was asked for). */
-    private static boolean isOnline(EntityPlayerMP player) {
+    static boolean isOnline(EntityPlayerMP player) {
         MinecraftServer server = MinecraftServer.getServer();
-        if (server == null || player.isDead) {
+        if (server == null || player == null || player.isDead) {
             return false;
         }
         for (Object object : server.getConfigurationManager().playerEntityList) {
@@ -124,7 +126,7 @@ public final class ServerScanner {
         return false;
     }
 
-    public void start(EntityPlayerMP player, int seconds, ScanFocus focus) {
+    public void start(EntityPlayerMP player, int seconds, ScanFocus focus, boolean light) {
         if (!canScan(player)) {
             sendStatus(player, "lagfinder.message.not_allowed");
             return;
@@ -145,12 +147,20 @@ public final class ServerScanner {
             Config.spikeTpsMs,
             new Describer());
         session.startFor(focus);
+        if (light) {
+            session.setSampleEvery(Config.lightScanEvery);
+        }
         owner = player.getUniqueID();
         tickStart = 0;
         lastStatus = 0;
         worldStarts.clear();
         ProfileSession.setServer(session);
-        LagFinder.LOG.info("{} started a {} s {} tick scan", player.getCommandSenderName(), seconds, focus);
+        LagFinder.LOG.info(
+            "{} started a {} s {} tick scan{}",
+            player.getCommandSenderName(),
+            seconds,
+            focus,
+            session.sampleEvery() > 1 ? " (light: 1 tick in " + session.sampleEvery() + ")" : "");
         sendStatus(player, null);
         broadcast(player.getUniqueID());
     }
@@ -232,7 +242,14 @@ public final class ServerScanner {
         status.message = message == null ? "" : message;
         status.totalSeconds = session != null ? (int) Math.round(session.durationNanos / 1e9) : 0;
         status.maxSeconds = Config.maxScanSeconds;
-        listeners.add(player.getUniqueID());
+        if (status.allowed) {
+            listeners.add(player.getUniqueID());
+        } else {
+            listeners.remove(player.getUniqueID());
+            status.state = Net.Status.IDLE;
+            status.progress = 0;
+            status.secondsLeft = 0;
+        }
         Net.sendTo(status, player);
     }
 
@@ -385,11 +402,11 @@ public final class ServerScanner {
         }
         lastStatus = now;
         EntityPlayerMP player = ownerPlayer(owner);
-        if (player != null) {
+        if (player != null && canScan(player)) {
             sendStatus(player, null);
             return true;
         }
-        LagFinder.LOG.info("The player who started the tick scan left: it is cancelled");
+        LagFinder.LOG.info("The player who started the tick scan left or lost access: it is cancelled");
         stop();
         broadcast();
         return false;
@@ -482,6 +499,10 @@ public final class ServerScanner {
                 ByteArrayOutputStream bytes = new ByteArrayOutputStream();
                 report.write(bytes);
                 byte[] data = bytes.toByteArray();
+                if (made != generation) {
+                    return;
+                }
+                ReportFiles.save(ServerReports.folder(), report, data);
                 int total = Math.max(1, (data.length + Net.PART_SIZE - 1) / Net.PART_SIZE);
                 schedule(() -> {
                     if (made != generation) {
@@ -529,12 +550,12 @@ public final class ServerScanner {
     }
 
     private void sendParts() {
+        ServerReports.INSTANCE.tick();
         if (outgoing.isEmpty()) {
             return;
         }
         EntityPlayerMP player = ownerPlayer(outgoingTo);
-        if (player == null) {
-            // Left before getting it.
+        if (player == null || !canScan(player)) {
             outgoing.clear();
             broadcast();
             return;
@@ -565,6 +586,7 @@ public final class ServerScanner {
     /** The server stopped: nothing carries over to the next one. */
     public void reset() {
         generation++;
+        ServerReports.INSTANCE.reset();
         stop();
         tasks.clear();
         outgoing.clear();

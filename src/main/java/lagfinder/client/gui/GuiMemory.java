@@ -22,6 +22,7 @@ import lagfinder.client.gui.ui.FlatButton;
 import lagfinder.client.gui.ui.FlatTextField;
 import lagfinder.client.gui.ui.Icons;
 import lagfinder.client.gui.ui.ScaledScreen;
+import lagfinder.client.gui.ui.ScrollbarDrag;
 import lagfinder.client.gui.ui.Smooth;
 import lagfinder.client.gui.ui.Theme;
 import lagfinder.client.gui.ui.WindowHeader;
@@ -102,6 +103,7 @@ public class GuiMemory extends ScaledScreen {
     private final Map<Object, Smooth> lights = new HashMap<>();
     private int scroll, sideScroll;
     private final Smooth shownScroll = new Smooth(0), shownSideScroll = new Smooth(0);
+    private final ScrollbarDrag listBar = new ScrollbarDrag(), sideBar = new ScrollbarDrag();
     private String query = "";
 
     private int panelLeft, panelTop, panelRight, panelBottom;
@@ -345,6 +347,39 @@ public class GuiMemory extends ScaledScreen {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (button == 0) {
+            int next = listBar.press(
+                mouseX,
+                mouseY,
+                listRight - 4,
+                listTop + 3,
+                listBottom - 3,
+                listHeight(),
+                rows.size() * ROW,
+                (int) Math.round(shownScroll.get()),
+                Math.max(0, rows.size() * ROW - listHeight() + 2));
+            if (next >= 0) {
+                scroll = next;
+                shownScroll.set(scroll);
+                return;
+            }
+            int total = (modOrder.size() + 1) * MOD_ROW;
+            next = sideBar.press(
+                mouseX,
+                mouseY,
+                sideRight - 4,
+                sideTop + 3,
+                bodyBottom - 20,
+                sideHeight() - 1,
+                total,
+                (int) Math.round(shownSideScroll.get()),
+                Math.max(0, total - sideHeight()));
+            if (next >= 0) {
+                sideScroll = next;
+                shownSideScroll.set(sideScroll);
+                return;
+            }
+        }
         super.mouseClicked(mouseX, mouseY, button);
         search.mouseClicked(mouseX, mouseY, button);
         if (!search.getText()
@@ -361,6 +396,34 @@ public class GuiMemory extends ScaledScreen {
                 return;
             }
         }
+    }
+
+    @Override
+    protected void mouseClickMove(int mouseX, int mouseY, int button, long elapsed) {
+        if (button == 0) {
+            int next = listBar.drag(mouseY);
+            if (next >= 0) {
+                scroll = next;
+                shownScroll.set(scroll);
+                return;
+            }
+            next = sideBar.drag(mouseY);
+            if (next >= 0) {
+                sideScroll = next;
+                shownSideScroll.set(sideScroll);
+                return;
+            }
+        }
+        super.mouseClickMove(mouseX, mouseY, button, elapsed);
+    }
+
+    @Override
+    protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
+        if (button == 0) {
+            listBar.release();
+            sideBar.release();
+        }
+        super.mouseMovedOrUp(mouseX, mouseY, button);
     }
 
     @Override

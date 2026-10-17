@@ -77,11 +77,14 @@ final class ReportBuilder {
 
         for (Category category : Category.of(session.mode)) {
             Node root = roots[category.ordinal()];
-            if ((category == Category.AE2_NETWORKS || category == Category.SERVER) && root.children == null) {
-                // No AE2, or no network ticked; no server's work measured (an older server's hooks): no tab for it.
+            if ((category == Category.AE2_NETWORKS || category == Category.SERVER
+                || category == Category.COVERS
+                || category == Category.PIPE_NETWORKS) && root.children == null) {
+                // No AE2, or no network ticked; no server's work measured (an older server's hooks); no GregTech
+                // cover worked: no tab for it.
                 continue;
             }
-            ReportEntry entry = convert(root, used, kept, graphed);
+            ReportEntry entry = convert(root, used, kept, graphed, totalPeriods);
             entry.name = category.id;
             report.categories.add(entry);
         }
@@ -98,7 +101,7 @@ final class ReportBuilder {
         }
     }
 
-    private static ReportEntry convert(Node node, int buckets, Set<Node> kept, Set<Node> graphed) {
+    private static ReportEntry convert(Node node, int buckets, Set<Node> kept, Set<Node> graphed, int sessionPeriods) {
         ReportEntry entry = new ReportEntry();
         entry.level = node.depth;
         entry.category = node.category;
@@ -114,6 +117,7 @@ final class ReportBuilder {
         entry.y = node.y;
         entry.z = node.z;
         entry.entityId = node.entityId;
+        entry.parts = node.parts;
         entry.totalMs = node.totalNanos / 1e6;
         entry.calls = node.calls;
         entry.maxMs = node.maxNanos / 1e6f;
@@ -121,6 +125,12 @@ final class ReportBuilder {
         entry.activePeriods = node.activePeriods;
         entry.spikes = node.spikes;
         entry.instances = node.instances;
+        entry.medianMs = node.steadyP50(sessionPeriods);
+        entry.p90Ms = node.steadyP90(sessionPeriods);
+        entry.gtActiveMs = node.gtActiveNanos / 1e6;
+        entry.gtIdleMs = node.gtIdleNanos / 1e6;
+        entry.gtActiveCalls = node.gtActiveCalls;
+        entry.gtIdleCalls = node.gtIdleCalls;
         if (node.hasBuckets() && (node.depth != Node.INSTANCE || graphed.contains(node))) {
             entry.sum = new float[buckets];
             entry.max = new float[buckets];
@@ -139,7 +149,7 @@ final class ReportBuilder {
                 if (child.depth == Node.INSTANCE && !kept.contains(child)) {
                     continue;
                 }
-                ReportEntry converted = convert(child, buckets, kept, graphed);
+                ReportEntry converted = convert(child, buckets, kept, graphed, sessionPeriods);
                 converted.parent = entry;
                 entry.children.add(converted);
             }

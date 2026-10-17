@@ -17,13 +17,16 @@ import org.lwjgl.input.Keyboard;
 import org.lwjgl.input.Mouse;
 
 import lagfinder.LagFinder;
+import lagfinder.client.ClientReports;
 import lagfinder.client.ClientScanner;
 import lagfinder.client.ReportStore;
 import lagfinder.client.gui.ui.FlatButton;
 import lagfinder.client.gui.ui.Icons;
+import lagfinder.client.gui.ui.ScrollbarDrag;
 import lagfinder.client.gui.ui.Smooth;
 import lagfinder.client.gui.ui.Theme;
 import lagfinder.core.Report;
+import lagfinder.core.ReportFiles;
 import lagfinder.core.ScanFocus;
 import lagfinder.core.ScanMode;
 
@@ -34,24 +37,27 @@ import lagfinder.core.ScanMode;
 public class GuiLogs extends GuiWindow {
 
     private static final int ROW = 22, OPEN_WIDTH = 64, DELETE_WIDTH = 22;
-    private static final int ID_FOLDER = 1, ID_DELETE_ALL = 2, ID_FILTER = 10;
+    private static final int ID_FOLDER = 1, ID_DELETE_ALL = 2, ID_SOURCE = 3, ID_FILTER = 10;
     /** How long a delete waits for its second click (ms). */
     private static final long CONFIRM_MS = 4000;
 
     /** The kinds of scans the list can be cut to; null shows all. */
     private static final ScanFocus[] FILTERS = { null, ScanFocus.LAG, ScanFocus.METHODS, ScanFocus.OBJECTS,
-        ScanFocus.ALLOCATIONS };
+        ScanFocus.ALLOCATIONS, ScanFocus.STEADY };
     private static final String[] FILTER_KEYS = { "lagfinder.logs.all", "lagfinder.logs.lag", "lagfinder.logs.methods",
-        "lagfinder.logs.objects", "lagfinder.logs.alloc" };
+        "lagfinder.logs.objects", "lagfinder.logs.alloc", "lagfinder.logs.steady" };
     private static int filter;
 
-    private final List<ReportStore.Saved> all = new ArrayList<>();
-    private final List<ReportStore.Saved> shown = new ArrayList<>();
-    private final Map<ReportStore.Saved, Smooth> lights = new HashMap<>();
+    private final List<ReportFiles.Saved> all = new ArrayList<>();
+    private final List<ReportFiles.Saved> shown = new ArrayList<>();
+    private final Map<ReportFiles.Saved, Smooth> lights = new HashMap<>();
     private final List<FlatButton> filterButtons = new ArrayList<>();
-    private FlatButton deleteAllButton;
+    private FlatButton deleteAllButton, sourceButton, folderButton;
+    /** The list shows the server's shared archive instead of this computer's reports. */
+    private boolean serverSource;
+    private int serverRevision = -1;
     /** The report waiting for a second click to be deleted, and since when. */
-    private ReportStore.Saved confirming;
+    private ReportFiles.Saved confirming;
     private long confirmingAt;
     /** Deleting all that is shown waits for a second click since then; 0 when it doesn't. */
     private long confirmingAllAt;
@@ -62,6 +68,7 @@ public class GuiLogs extends GuiWindow {
     private int listTop, listHeight;
     private int scroll;
     private final Smooth shownScroll = new Smooth(0);
+    private final ScrollbarDrag listBar = new ScrollbarDrag();
 
     @Override
     protected Tab tab() {
@@ -71,12 +78,16 @@ public class GuiLogs extends GuiWindow {
     @Override
     protected void layOut() {
         reload();
-        int filtersY = contentTop;
+        int sourceY = contentTop;
+        int filtersY = sourceY + 24;
         listTop = filtersY + 16 + 8;
         int buttonsY = contentBottom - 20;
         listHeight = buttonsY - 8 - listTop;
 
         filterButtons.clear();
+        // This computer's reports, or the server's shared archive (operators and allowed ranks).
+        sourceButton = new FlatButton(ID_SOURCE, contentLeft, sourceY, contentRight - contentLeft, 20, "");
+        buttonList.add(sourceButton);
         int x = contentLeft;
         for (int i = 0; i < FILTERS.length; i++) {
             String text = I18n.format(FILTER_KEYS[i]);
@@ -92,7 +103,7 @@ public class GuiLogs extends GuiWindow {
             buttonList.add(button);
         }
         String folder = I18n.format("lagfinder.logs.folder");
-        FlatButton folderButton = new FlatButton(
+        folderButton = new FlatButton(
             ID_FOLDER,
             contentLeft,
             buttonsY,
@@ -111,14 +122,20 @@ public class GuiLogs extends GuiWindow {
     private void reload() {
         all.clear();
         lights.clear();
-        all.addAll(ReportStore.list());
-        savedCount = all.size();
+        if (serverSource) {
+            all.addAll(ClientReports.INSTANCE.list());
+        } else {
+            all.addAll(ReportStore.list());
+            // The menu counts this computer's reports.
+            savedCount = all.size();
+        }
+        serverRevision = ClientReports.INSTANCE.revision();
         applyFilter();
     }
 
     private void applyFilter() {
         shown.clear();
-        for (ReportStore.Saved saved : all) {
+        for (ReportFiles.Saved saved : all) {
             if (FILTERS[filter] == null || saved.focus == FILTERS[filter]) {
                 shown.add(saved);
             }
@@ -137,7 +154,13 @@ public class GuiLogs extends GuiWindow {
         for (int i = 0; i < filterButtons.size(); i++) {
             filterButtons.get(i).active = i == filter;
         }
-        deleteAllButton.enabled = !shown.isEmpty();
+        sourceButton.enabled = ClientScanner.INSTANCE.serverArchiveAvailable() || serverSource;
+        sourceButton.displayString = I18n.format(serverSource ? "lagfinder.logs.server" : "lagfinder.logs.local");
+        folderButton.displayString = I18n.format(serverSource ? "lagfinder.logs.refresh" : "lagfinder.logs.folder");
+        folderButton.enabled = !serverSource || !ClientReports.INSTANCE.loading();
+        // The server's reports are only read from here, never deleted.
+        deleteAllButton.visible = !serverSource;
+        deleteAllButton.enabled = !serverSource && !shown.isEmpty();
         deleteAllButton.active = confirmingAllAt != 0;
         deleteAllButton.displayString = confirmingAllAt != 0 ? I18n.format("lagfinder.logs.delete_all_sure")
             : I18n.format(filter == 0 ? "lagfinder.logs.delete_all" : "lagfinder.logs.delete_shown") + " ("
@@ -159,15 +182,31 @@ public class GuiLogs extends GuiWindow {
 
     @Override
     protected void pressed(GuiButton button) {
-        if (button.id == ID_FOLDER) {
-            openFolder();
-        } else if (button.id == ID_DELETE_ALL) {
+        if (button.id == ID_SOURCE) {
+            serverSource = !serverSource;
+            confirming = null;
+            confirmingAllAt = 0;
+            scroll = 0;
+            shownScroll.set(0);
+            if (serverSource) {
+                ClientReports.INSTANCE.listReports();
+            } else {
+                ClientReports.INSTANCE.reset();
+            }
+            reload();
+        } else if (button.id == ID_FOLDER) {
+            if (serverSource) {
+                ClientReports.INSTANCE.listReports();
+            } else {
+                openFolder();
+            }
+        } else if (button.id == ID_DELETE_ALL && !serverSource) {
             if (confirmingAllAt == 0) {
                 confirmingAllAt = System.currentTimeMillis();
                 confirming = null;
             } else {
                 int deleted = 0;
-                for (ReportStore.Saved saved : new ArrayList<>(shown)) {
+                for (ReportFiles.Saved saved : new ArrayList<>(shown)) {
                     if (ReportStore.delete(saved)) {
                         deleted++;
                     }
@@ -228,6 +267,25 @@ public class GuiLogs extends GuiWindow {
 
     @Override
     protected void clicked(int mouseX, int mouseY, int button) {
+        if (button == 0) {
+            // The list's scrollbar can be dragged.
+            int total = shown.size() * ROW;
+            int next = listBar.press(
+                mouseX,
+                mouseY,
+                contentRight - 4,
+                listTop + 2,
+                listTop + listHeight - 2,
+                listHeight,
+                total,
+                (int) Math.round(shownScroll.get()),
+                Math.max(0, total - listHeight));
+            if (next >= 0) {
+                scroll = next;
+                shownScroll.set(scroll);
+                return;
+            }
+        }
         clickButtons(mouseX, mouseY, button);
         if (button != 0) {
             return;
@@ -239,10 +297,13 @@ public class GuiLogs extends GuiWindow {
             }
             return;
         }
-        ReportStore.Saved saved = shown.get(index);
+        ReportFiles.Saved saved = shown.get(index);
         int rowY = listTop + index * ROW - scroll;
         boolean onButtons = mouseY >= rowY + 3 && mouseY < rowY + ROW - 3;
-        if (confirming == saved && onButtons && mouseX >= openX() && mouseX < deleteX() + DELETE_WIDTH) {
+        if (!serverSource && confirming == saved
+            && onButtons
+            && mouseX >= openX()
+            && mouseX < deleteX() + DELETE_WIDTH) {
             confirming = null;
             if (ReportStore.delete(saved)) {
                 reload();
@@ -253,7 +314,7 @@ public class GuiLogs extends GuiWindow {
             refresh();
             return;
         }
-        if (onButtons && mouseX >= deleteX() && mouseX < deleteX() + DELETE_WIDTH) {
+        if (!serverSource && onButtons && mouseX >= deleteX() && mouseX < deleteX() + DELETE_WIDTH) {
             confirming = saved;
             confirmingAt = System.currentTimeMillis();
             confirmingAllAt = 0;
@@ -263,14 +324,53 @@ public class GuiLogs extends GuiWindow {
         open(saved);
     }
 
-    private void open(ReportStore.Saved saved) {
-        Report report = ReportStore.load(saved.file);
+    private void open(ReportFiles.Saved saved) {
+        if (serverSource) {
+            // Asked of the server; it opens when it arrives (see updateScreen).
+            ClientReports.INSTANCE.open(saved);
+            return;
+        }
+        Report report = ReportStore.load(saved.name);
         if (report == null) {
             tell(I18n.format("lagfinder.logs.unreadable"));
             return;
         }
         ClientScanner.INSTANCE.setReport(report);
         GuiLagFinder.open(mc, report);
+    }
+
+    @Override
+    protected void mouseClickMove(int mouseX, int mouseY, int button, long elapsed) {
+        int next = button == 0 ? listBar.drag(mouseY) : -1;
+        if (next >= 0) {
+            scroll = next;
+            shownScroll.set(scroll);
+            return;
+        }
+        super.mouseClickMove(mouseX, mouseY, button, elapsed);
+    }
+
+    @Override
+    protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
+        if (button == 0) {
+            listBar.release();
+        }
+        super.mouseMovedOrUp(mouseX, mouseY, button);
+    }
+
+    @Override
+    public void updateScreen() {
+        super.updateScreen();
+        if (serverSource) {
+            if (serverRevision != ClientReports.INSTANCE.revision()) {
+                reload();
+            }
+            Report report = ClientReports.INSTANCE.takeReport();
+            if (report != null) {
+                ClientScanner.INSTANCE.setReport(report);
+                GuiLagFinder.open(mc, report);
+            }
+        }
     }
 
     @Override
@@ -301,7 +401,7 @@ public class GuiLogs extends GuiWindow {
     protected void drawContent(int mouseX, int mouseY, float partialTicks) {
         refresh();
         long bytes = 0;
-        for (ReportStore.Saved saved : all) {
+        for (ReportFiles.Saved saved : all) {
             bytes += saved.size;
         }
         // How many there are and how much room they take, right of the filters.
@@ -314,17 +414,27 @@ public class GuiLogs extends GuiWindow {
 
         int x0 = contentLeft, x1 = contentRight, y0 = listTop, y1 = listTop + listHeight;
         Theme.card(x0, y0, x1, y1);
+        boolean loading = serverSource && ClientReports.INSTANCE.loading();
+        String error = serverSource ? ClientReports.INSTANCE.error() : "";
         if (shown.isEmpty()) {
-            String empty = I18n.format(all.isEmpty() ? "lagfinder.logs.empty" : "lagfinder.logs.empty_filter");
+            String empty = I18n.format(
+                loading ? "lagfinder.logs.loading"
+                    : !error.isEmpty() ? error
+                        : all.isEmpty() ? "lagfinder.logs.empty" : "lagfinder.logs.empty_filter");
             Theme.centered(fontRendererObj, empty, (x0 + x1) / 2, (y0 + y1) / 2 - 4, Theme.TEXT_DISABLED);
         } else {
             drawRows(mouseX, mouseY, x0, y0, x1, y1);
         }
 
-        String note = message != null && System.currentTimeMillis() - messageAt < 4000 ? message : null;
+        String note = loading ? I18n.format("lagfinder.logs.loading")
+            : !error.isEmpty() ? I18n.format(error)
+                : serverSource ? I18n.format("lagfinder.logs.server_subtitle")
+                    : message != null && System.currentTimeMillis() - messageAt < 4000 ? message : null;
         if (note != null) {
-            int noteX = deleteAllButton.xPosition - 8 - fontRendererObj.getStringWidth(note);
-            fontRendererObj.drawString(note, noteX, deleteAllButton.yPosition + 6, Theme.TEXT_MUTED);
+            int noteX = serverSource ? folderButton.xPosition + folderButton.getWidth() + 8
+                : deleteAllButton.xPosition - 8 - fontRendererObj.getStringWidth(note);
+            String text = serverSource ? Theme.ellipsize(fontRendererObj, note, contentRight - noteX) : note;
+            fontRendererObj.drawString(text, noteX, folderButton.yPosition + 6, Theme.TEXT_MUTED);
         }
     }
 
@@ -339,7 +449,7 @@ public class GuiLogs extends GuiWindow {
             if (y + ROW < y0 || y > y1) {
                 continue;
             }
-            ReportStore.Saved saved = shown.get(i);
+            ReportFiles.Saved saved = shown.get(i);
             boolean hovered = i == hoveredIndex;
             Smooth light = lights.computeIfAbsent(saved, k -> new Smooth(0));
             double lit = light.update(hovered ? 1 : 0, 22);
@@ -397,7 +507,7 @@ public class GuiLogs extends GuiWindow {
         }
     }
 
-    private void drawRowButtons(ReportStore.Saved saved, int y, boolean hovered, int mouseX, int mouseY) {
+    private void drawRowButtons(ReportFiles.Saved saved, int y, boolean hovered, int mouseX, int mouseY) {
         int by0 = y + 3, by1 = y + ROW - 3;
         if (confirming == saved) {
             int bx0 = openX(), bx1 = deleteX() + DELETE_WIDTH;
@@ -423,6 +533,10 @@ public class GuiLogs extends GuiWindow {
             openX() + OPEN_WIDTH / 2,
             by0 + (by1 - by0 - 8) / 2,
             hovered ? Theme.TEXT : Theme.TEXT_MUTED);
+        if (serverSource) {
+            // The server's reports are only read from here: no bin.
+            return;
+        }
         Theme.fill(deleteX(), by0, deleteX() + DELETE_WIDTH, by1, overDelete ? 0xFF4A2224 : Theme.CONTROL);
         Theme.outline(deleteX(), by0, deleteX() + DELETE_WIDTH, by1, overDelete ? Theme.DANGER : Theme.BORDER);
         Icons.draw(

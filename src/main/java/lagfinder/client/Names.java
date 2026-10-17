@@ -60,6 +60,12 @@ public final class Names {
     }
 
     private static String find(ReportEntry entry) {
+        if (entry.translationKey != null && entry.translationKey.startsWith("gt.blockmachines.")) {
+            String translated = translatedName(entry.translationKey);
+            if (translated != null) {
+                return translated;
+            }
+        }
         ItemStack stack = icon(entry);
         if (stack != null) {
             try {
@@ -71,10 +77,16 @@ public final class Names {
                 // Fall back to the server's name.
             }
         }
-        if (entry.translationKey != null && StatCollector.canTranslate(entry.translationKey)) {
-            return StatCollector.translateToLocal(entry.translationKey);
+        String translated = translatedName(entry.translationKey);
+        return translated != null ? translated : entry.name;
+    }
+
+    private static String translatedName(String key) {
+        if (key == null || !StatCollector.canTranslate(key)) {
+            return null;
         }
-        return entry.name;
+        String name = StatCollector.translateToLocal(key);
+        return name == null || name.isEmpty() || name.contains(".name") ? null : name;
     }
 
     /** The item standing for the line (its own or its kind's), or null. */

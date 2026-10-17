@@ -16,7 +16,8 @@ import cpw.mods.fml.common.event.FMLServerStoppingEvent;
     version = Tags.VERSION,
     name = LagFinder.NAME,
     acceptedMinecraftVersions = "[1.7.10]",
-    acceptableRemoteVersions = "*")
+    acceptableRemoteVersions = "*",
+    dependencies = "after:serverutilities")
 public class LagFinder {
 
     public static final String MODID = "lagfinder";

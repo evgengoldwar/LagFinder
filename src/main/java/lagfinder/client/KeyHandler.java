@@ -18,8 +18,14 @@ public final class KeyHandler {
         Keyboard.KEY_L,
         "key.categories.lagfinder");
 
+    public static final KeyBinding WORLD_MS = new KeyBinding(
+        "key.lagfinder.world_ms",
+        Keyboard.KEY_NUMPAD0,
+        "key.categories.lagfinder");
+
     public static void register() {
         ClientRegistry.registerKeyBinding(OPEN);
+        ClientRegistry.registerKeyBinding(WORLD_MS);
     }
 
     public static String keyName() {
@@ -29,9 +35,15 @@ public final class KeyHandler {
     @SubscribeEvent
     public void onKey(InputEvent.KeyInputEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.currentScreen != null || !OPEN.isPressed()) {
+        if (mc.currentScreen != null) {
             return;
         }
-        mc.displayGuiScreen(GuiLagFinder.toOpen());
+        if (OPEN.isPressed() && (!ClientScanner.INSTANCE.serverHasMod() || ClientScanner.INSTANCE.serverAllowed())) {
+            mc.displayGuiScreen(GuiLagFinder.toOpen());
+        }
+        if (WORLD_MS.isPressed()
+            && (!ClientScanner.INSTANCE.serverHasMod() || ClientScanner.INSTANCE.serverAllowed())) {
+            WorldMsOverlay.INSTANCE.toggle();
+        }
     }
 }

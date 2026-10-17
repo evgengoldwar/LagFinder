@@ -1,17 +1,23 @@
 package lagfinder.mixins.early;
 
+import net.minecraft.block.Block;
 import net.minecraft.entity.Entity;
+import net.minecraft.pathfinding.PathEntity;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.world.EnumSkyBlock;
 import net.minecraft.world.World;
 
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 
 import lagfinder.core.Category;
 import lagfinder.core.ProfileSession;
+import lagfinder.core.WorldTask;
 
 /**
  * Times each tile entity and entity update of a world's tick, on the server and in the client's own world: their own
@@ -95,6 +101,95 @@ public abstract class MixinWorld {
             original.call(world, rider);
         } finally {
             session.record(Category.ENTITIES, rider, start, outer);
+        }
+    }
+
+    @WrapOperation(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;updateWeather()V"))
+    private void lagfinder$timeWeather(World world, Operation<Void> original) {
+        ProfileSession session = ProfileSession.current();
+        if (session == null) {
+            original.call(world);
+            return;
+        }
+        long outer = session.enter();
+        long start = System.nanoTime();
+        try {
+            original.call(world);
+        } finally {
+            session.recordTask(world, WorldTask.WEATHER, start, outer);
+        }
+    }
+
+    @WrapOperation(
+        method = "notifyBlockOfNeighborChange",
+        at = @At(
+            value = "INVOKE",
+            target = "Lnet/minecraft/block/Block;onNeighborBlockChange(Lnet/minecraft/world/World;IIILnet/minecraft/block/Block;)V"))
+    private void lagfinder$timeNeighborUpdate(Block block, World world, int x, int y, int z, Block neighbor,
+        Operation<Void> original) {
+        ProfileSession session = ProfileSession.current();
+        if (session == null) {
+            original.call(block, world, x, y, z, neighbor);
+            return;
+        }
+        long outer = session.enter();
+        long start = System.nanoTime();
+        try {
+            original.call(block, world, x, y, z, neighbor);
+        } finally {
+            session.recordNeighborUpdate(world, block, x, y, z, start, outer);
+        }
+    }
+
+    @Inject(method = { "updateLightByType", "func_147463_c" }, at = @At("HEAD"))
+    private void lagfinder$lightStarts(EnumSkyBlock type, int x, int y, int z, CallbackInfoReturnable<Boolean> cir) {
+        ProfileSession session = ProfileSession.current();
+        if (session != null) {
+            session.spanBegin(ProfileSession.SPAN_LIGHT);
+        }
+    }
+
+    @Inject(method = { "updateLightByType", "func_147463_c" }, at = @At("RETURN"))
+    private void lagfinder$lightEnds(EnumSkyBlock type, int x, int y, int z, CallbackInfoReturnable<Boolean> cir) {
+        ProfileSession session = ProfileSession.current();
+        if (session != null) {
+            session.spanEndLight((World) (Object) this, type, x, y, z);
+        }
+    }
+
+    @Inject(method = "getPathEntityToEntity", at = @At("HEAD"))
+    private void lagfinder$pathToEntityStarts(Entity entity, Entity target, float range, boolean openDoors,
+        boolean closedDoors, boolean avoidWater, boolean swim, CallbackInfoReturnable<PathEntity> cir) {
+        ProfileSession session = ProfileSession.current();
+        if (session != null) {
+            session.spanBegin(ProfileSession.SPAN_PATH);
+        }
+    }
+
+    @Inject(method = "getPathEntityToEntity", at = @At("RETURN"))
+    private void lagfinder$pathToEntityEnds(Entity entity, Entity target, float range, boolean openDoors,
+        boolean closedDoors, boolean avoidWater, boolean swim, CallbackInfoReturnable<PathEntity> cir) {
+        ProfileSession session = ProfileSession.current();
+        if (session != null) {
+            session.spanEndPath(entity);
+        }
+    }
+
+    @Inject(method = "getEntityPathToXYZ", at = @At("HEAD"))
+    private void lagfinder$pathToPlaceStarts(Entity entity, int x, int y, int z, float range, boolean openDoors,
+        boolean closedDoors, boolean avoidWater, boolean swim, CallbackInfoReturnable<PathEntity> cir) {
+        ProfileSession session = ProfileSession.current();
+        if (session != null) {
+            session.spanBegin(ProfileSession.SPAN_PATH);
+        }
+    }
+
+    @Inject(method = "getEntityPathToXYZ", at = @At("RETURN"))
+    private void lagfinder$pathToPlaceEnds(Entity entity, int x, int y, int z, float range, boolean openDoors,
+        boolean closedDoors, boolean avoidWater, boolean swim, CallbackInfoReturnable<PathEntity> cir) {
+        ProfileSession session = ProfileSession.current();
+        if (session != null) {
+            session.spanEndPath(entity);
         }
     }
 }

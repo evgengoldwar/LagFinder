@@ -50,6 +50,7 @@ public final class Highlighter {
         /** The report line it comes from, and its report, for its numbers. */
         public final ReportEntry entry;
         public final Report report;
+        final int[] parts;
         final long until;
         /** The followed entity's box this frame, or null when it isn't in sight. */
         double[] followed;
@@ -64,6 +65,7 @@ public final class Highlighter {
             this.color = color;
             this.entry = entry;
             this.report = report;
+            this.parts = entry.parts;
             this.until = System.currentTimeMillis() + Config.highlightSeconds * 1000L;
         }
 
@@ -172,6 +174,9 @@ public final class Highlighter {
             double[] box = box(highlight);
             int rgb = highlight.color & 0xFFFFFF;
             boolean lit = highlight == hovered;
+            if (highlight.parts != null) {
+                drawParts(highlight.parts, rgb, lit, pulse);
+            }
             fillBox(box, rgb, lit ? (int) (80 + 50 * pulse) : (int) (30 + 40 * pulse));
             GL11.glLineWidth(lit ? 4f : 2.5f);
             outlineBox(box, rgb, 255);
@@ -208,6 +213,36 @@ public final class Highlighter {
         GL11.glPopMatrix();
         GL11.glPopAttrib();
         GL11.glColor4f(1f, 1f, 1f, 1f);
+    }
+
+    private static final int PART_BATCH = 256;
+
+    private static void drawParts(int[] parts, int rgb, boolean lit, double pulse) {
+        Tessellator tess = Tessellator.instance;
+        int count = parts.length / 3;
+        int fill = lit ? (int) (50 + 40 * pulse) : (int) (20 + 30 * pulse);
+        for (int from = 0; from < count; from += PART_BATCH) {
+            int to = Math.min(count, from + PART_BATCH);
+            tess.startDrawingQuads();
+            tess.setColorRGBA_I(rgb, fill);
+            for (int i = from; i < to; i++) {
+                fillVertices(tess, partBox(parts, i));
+            }
+            tess.draw();
+            GL11.glLineWidth(lit ? 2.5f : 1.5f);
+            tess.startDrawing(GL11.GL_LINES);
+            tess.setColorRGBA_I(rgb, 200);
+            for (int i = from; i < to; i++) {
+                outlineVertices(tess, partBox(parts, i));
+            }
+            tess.draw();
+        }
+    }
+
+    private static double[] partBox(int[] parts, int index) {
+        double e = 0.02;
+        int x = parts[index * 3], y = parts[index * 3 + 1], z = parts[index * 3 + 2];
+        return new double[] { x - e, y - e, z - e, x + 1 + e, y + 1 + e, z + 1 + e };
     }
 
     /** Moves an entity's highlight to where the entity is now, if the client sees it. */
@@ -250,6 +285,14 @@ public final class Highlighter {
             if (hit >= 0 && hit < nearest) {
                 nearest = hit;
                 best = highlight;
+            }
+            int parts = highlight.parts == null ? 0 : highlight.parts.length / 3;
+            for (int i = 0; i < parts; i++) {
+                double partHit = hit(partBox(highlight.parts, i), eye, look);
+                if (partHit >= 0 && partHit < nearest) {
+                    nearest = partHit;
+                    best = highlight;
+                }
             }
         }
         return best;
@@ -297,6 +340,11 @@ public final class Highlighter {
         Tessellator tess = Tessellator.instance;
         tess.startDrawingQuads();
         tess.setColorRGBA_I(rgb, alpha);
+        fillVertices(tess, b);
+        tess.draw();
+    }
+
+    private static void fillVertices(Tessellator tess, double[] b) {
         // Bottom, top, and the four sides.
         quad(tess, b[0], b[1], b[2], b[3], b[1], b[2], b[3], b[1], b[5], b[0], b[1], b[5]);
         quad(tess, b[0], b[4], b[2], b[0], b[4], b[5], b[3], b[4], b[5], b[3], b[4], b[2]);
@@ -304,7 +352,6 @@ public final class Highlighter {
         quad(tess, b[0], b[1], b[5], b[3], b[1], b[5], b[3], b[4], b[5], b[0], b[4], b[5]);
         quad(tess, b[0], b[1], b[2], b[0], b[1], b[5], b[0], b[4], b[5], b[0], b[4], b[2]);
         quad(tess, b[3], b[1], b[2], b[3], b[4], b[2], b[3], b[4], b[5], b[3], b[1], b[5]);
-        tess.draw();
     }
 
     private static void quad(Tessellator tess, double... v) {
@@ -317,6 +364,11 @@ public final class Highlighter {
         Tessellator tess = Tessellator.instance;
         tess.startDrawing(GL11.GL_LINES);
         tess.setColorRGBA_I(rgb, alpha);
+        outlineVertices(tess, b);
+        tess.draw();
+    }
+
+    private static void outlineVertices(Tessellator tess, double[] b) {
         double[][] corners = { { b[0], b[2] }, { b[3], b[2] }, { b[3], b[5] }, { b[0], b[5] } };
         for (int i = 0; i < 4; i++) {
             double[] a = corners[i], c = corners[(i + 1) % 4];
@@ -327,6 +379,5 @@ public final class Highlighter {
             tess.addVertex(a[0], b[1], a[1]);
             tess.addVertex(a[0], b[4], a[1]);
         }
-        tess.draw();
     }
 }

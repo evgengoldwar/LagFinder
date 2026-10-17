@@ -22,6 +22,7 @@ import lagfinder.client.gui.ui.FlatButton;
 import lagfinder.client.gui.ui.FlatTextField;
 import lagfinder.client.gui.ui.Icons;
 import lagfinder.client.gui.ui.ScaledScreen;
+import lagfinder.client.gui.ui.ScrollbarDrag;
 import lagfinder.client.gui.ui.Smooth;
 import lagfinder.client.gui.ui.Theme;
 import lagfinder.client.gui.ui.WindowHeader;
@@ -102,6 +103,7 @@ public class GuiInstances extends ScaledScreen {
     private final Map<Object, Smooth> lights = new HashMap<>();
     private int scroll;
     private final Smooth shownScroll = new Smooth(0);
+    private final ScrollbarDrag gridBar = new ScrollbarDrag();
 
     private int panelLeft, panelTop, panelRight, panelBottom;
     private int toolbarY, gridLeft, gridRight, gridTop, gridBottom;
@@ -400,6 +402,23 @@ public class GuiInstances extends ScaledScreen {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int button) {
+        if (button == 0) {
+            int next = gridBar.press(
+                mouseX,
+                mouseY,
+                gridRight - 4,
+                gridTop + 3,
+                gridBottom - 3,
+                gridHeight(),
+                contentHeight(),
+                (int) Math.round(shownScroll.get()),
+                Math.max(0, contentHeight() - gridHeight()));
+            if (next >= 0) {
+                scroll = next;
+                shownScroll.set(scroll);
+                return;
+            }
+        }
         super.mouseClicked(mouseX, mouseY, button);
         search.mouseClicked(mouseX, mouseY, button);
         if (!search.getText()
@@ -417,6 +436,25 @@ public class GuiInstances extends ScaledScreen {
                 return;
             }
         }
+    }
+
+    @Override
+    protected void mouseClickMove(int mouseX, int mouseY, int button, long elapsed) {
+        int next = button == 0 ? gridBar.drag(mouseY) : -1;
+        if (next >= 0) {
+            scroll = next;
+            shownScroll.set(scroll);
+            return;
+        }
+        super.mouseClickMove(mouseX, mouseY, button, elapsed);
+    }
+
+    @Override
+    protected void mouseMovedOrUp(int mouseX, int mouseY, int button) {
+        if (button == 0) {
+            gridBar.release();
+        }
+        super.mouseMovedOrUp(mouseX, mouseY, button);
     }
 
     @Override
@@ -782,11 +820,15 @@ public class GuiInstances extends ScaledScreen {
             statsY + 10,
             () -> picked = picked == entry ? null : entry,
             I18n.format("lagfinder.cards.stats_tip") + "\n"
-                + I18n.format(fps() ? "lagfinder.stat.avg_frame" : "lagfinder.stat.avg_tick")
+                + I18n.format(
+                    !fps() ? "lagfinder.stat.avg_tick"
+                        : report.costsInFps() ? "lagfinder.stat.avg_frame" : "lagfinder.stat.avg_tick_frame")
                 + ": "
                 + avgText(average)
                 + "\n"
-                + I18n.format(report.costsInFps() ? "lagfinder.stat.peak_fps" : "lagfinder.stat.peak")
+                + I18n.format(
+                    report.costsInFps() ? "lagfinder.stat.peak_fps"
+                        : fps() ? "lagfinder.stat.peak_frame" : "lagfinder.stat.peak")
                 + ": "
                 + peak
                 + "  @"
@@ -845,7 +887,8 @@ public class GuiInstances extends ScaledScreen {
                     Highlighter.INSTANCE.toggle(report, entry);
                     picked = entry;
                 };
-                tip = I18n.format("lagfinder.tip.highlight");
+                tip = entry.partCount() > 1 ? I18n.format("lagfinder.tip.highlight_network", entry.partCount())
+                    : I18n.format("lagfinder.tip.highlight");
             } else {
                 action = () -> {
                     setClipboardString(entry.x + " " + entry.y + " " + entry.z);

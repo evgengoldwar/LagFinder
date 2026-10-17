@@ -13,6 +13,7 @@ public class IconButton extends FlatButton {
     public int badge;
     /** Drawn dimmed, for a feature that is off. */
     public boolean dim;
+    public boolean bare;
 
     public IconButton(int id, int x, int y, String[] icon, String tooltip) {
         super(id, x, y, 20, 16, "");
@@ -26,7 +27,13 @@ public class IconButton extends FlatButton {
             return;
         }
         boolean hovered = enabled && isMouseOver(mouseX, mouseY);
-        drawBackground(hovered);
+        if (bare) {
+            if (hovered) {
+                Theme.roundRect(xPosition, yPosition, xPosition + width, yPosition + height, 0xFFB3364A);
+            }
+        } else {
+            drawBackground(hovered);
+        }
         int color;
         if (iconColor != 0 && enabled) {
             color = Theme.iconShade(iconColor, hovered, active, dim);

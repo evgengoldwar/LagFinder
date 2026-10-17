@@ -4,10 +4,12 @@ import net.minecraftforge.common.MinecraftForge;
 
 import cpw.mods.fml.common.FMLCommonHandler;
 import cpw.mods.fml.common.event.FMLInitializationEvent;
+import lagfinder.client.ClientReports;
 import lagfinder.client.ClientScanner;
 import lagfinder.client.Highlighter;
 import lagfinder.client.HudOverlay;
 import lagfinder.client.KeyHandler;
+import lagfinder.client.WorldMsOverlay;
 import lagfinder.network.Net;
 
 public class ClientProxy extends CommonProxy {
@@ -24,6 +26,10 @@ public class ClientProxy extends CommonProxy {
             .register(ClientScanner.INSTANCE);
         MinecraftForge.EVENT_BUS.register(Highlighter.INSTANCE);
         MinecraftForge.EVENT_BUS.register(HudOverlay.INSTANCE);
+        MinecraftForge.EVENT_BUS.register(WorldMsOverlay.INSTANCE);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(WorldMsOverlay.INSTANCE);
     }
 
     @Override
@@ -34,5 +40,15 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void onReportPart(Net.ReportPart part) {
         ClientScanner.INSTANCE.onReportPart(part);
+    }
+
+    @Override
+    public void onArchiveCatalog(Net.ArchiveCatalog catalog) {
+        ClientReports.INSTANCE.onCatalog(catalog);
+    }
+
+    @Override
+    public void onArchivePart(Net.ArchivePart part) {
+        ClientReports.INSTANCE.onPart(part.part);
     }
 }

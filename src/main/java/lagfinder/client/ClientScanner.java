@@ -20,6 +20,7 @@ import lagfinder.client.gui.GuiLagFinder;
 import lagfinder.core.LagFilter;
 import lagfinder.core.ProfileSession;
 import lagfinder.core.Report;
+import lagfinder.core.ReportFiles;
 import lagfinder.core.ReportMerge;
 import lagfinder.core.ScanFocus;
 import lagfinder.core.ScanMode;
@@ -77,10 +78,11 @@ public final class ClientScanner {
     private float frameRateBefore;
 
     /** Parts of a report taken at most: about 64 MB, far more than any report; a claim of more is refused. */
-    private static final int MAX_PARTS = 64 * 1024 * 1024 / Net.PART_SIZE;
+    private static final int MAX_PARTS = (ReportFiles.MAX_BYTES + Net.PART_SIZE - 1) / Net.PART_SIZE;
     private int partsId = -1;
     private byte[][] parts;
     private int partsReceived;
+    private int partsBytes;
     /** The server's report has all its parts and is being read (on another thread). */
     private boolean reading;
     /** The server said it got the start of the scan: it is waited for however long its next tick takes. */
@@ -125,6 +127,10 @@ public final class ClientScanner {
 
     public boolean serverAllowed() {
         return serverHasMod && serverAllowed;
+    }
+
+    public boolean serverArchiveAvailable() {
+        return serverHasMod && serverAllowed && serverProtocol >= 3;
     }
 
     public boolean teleportAllowed() {
@@ -246,15 +252,19 @@ public final class ClientScanner {
 
     /** Starts a scan on the side asked: the server's ticks, this client's frames, or both at once. */
     public void start(ScanSide side, ScanFocus focus, int seconds) {
-        start(side, focus, seconds, null);
+        start(side, focus, seconds, null, false);
     }
 
     /**
      * Starts a scan; of a scan of the server's ticks, the report leaves out what the filter says (null: nothing is
-     * left out).
+     * left out), and a {@code light} one measures one tick in a few.
      */
-    public void start(ScanSide side, ScanFocus focus, int seconds, LagFilter filter) {
+    public void start(ScanSide side, ScanFocus focus, int seconds, LagFilter filter, boolean light) {
         if (isActive()) {
+            return;
+        }
+        if (serverHasMod && !serverAllowed()) {
+            tell("lagfinder.message.not_allowed");
             return;
         }
         this.filter = filter;
@@ -284,7 +294,7 @@ public final class ClientScanner {
             requestedSeconds = seconds;
             statusAt = requestedAt;
             secondsLeft = seconds;
-            Net.sendToServer(new Net.StartScan(seconds, focus));
+            Net.sendToServer(new Net.StartScan(seconds, focus, light));
         }
         if (side.client()) {
             frameRateBefore = recentFrameRate();
@@ -412,7 +422,8 @@ public final class ClientScanner {
                 || cancelling
                 || reading
                 || part.total < 1
-                || part.total > MAX_PARTS) {
+                || part.total > MAX_PARTS
+                || !part.valid()) {
                 // Not asked for (no tick scan of ours runs), or more than any report: not taken.
                 return;
             }
@@ -420,10 +431,18 @@ public final class ClientScanner {
                 partsId = part.id;
                 parts = new byte[part.total][];
                 partsReceived = 0;
+                partsBytes = 0;
             }
             if (part.index < 0 || part.index >= parts.length || parts[part.index] != null) {
                 return;
             }
+            if (partsBytes > ReportFiles.MAX_BYTES - part.data.length) {
+                parts = null;
+                serverPhase = Phase.IDLE;
+                tell("lagfinder.message.failed");
+                return;
+            }
+            partsBytes += part.data.length;
             parts[part.index] = part.data;
             partsReceived++;
             serverPhase = Phase.RECEIVING;
@@ -533,7 +552,9 @@ public final class ClientScanner {
         unseen = true;
         // The key opens the scanner, where the new report is, not a log closed before.
         GuiLagFinder.forgetReopen();
-        ReportStore.save(finished, data);
+        if (finished.mode == ScanMode.FPS || finished.bothSides) {
+            ReportStore.save(finished, data);
+        }
         Minecraft mc = Minecraft.getMinecraft();
         if (mc.thePlayer != null && !(mc.currentScreen instanceof GuiLagFinder)) {
             ChatComponentTranslation text = new ChatComponentTranslation("lagfinder.chat.ready", KeyHandler.keyName());
@@ -547,6 +568,7 @@ public final class ClientScanner {
         if (event.phase != TickEvent.Phase.START) {
             return;
         }
+        ClientReports.INSTANCE.tick();
         Runnable task;
         while ((task = tasks.poll()) != null) {
             try {
@@ -696,8 +718,12 @@ public final class ClientScanner {
         if (mc.gameSettings.enableVsync) {
             int refresh = 60;
             try {
-                int frequency = org.lwjgl.opengl.Display.getDisplayMode()
-                    .getFrequency();
+                int frequency = org.lwjgl.opengl.Display.isFullscreen() ? org.lwjgl.opengl.Display.getDisplayMode()
+                    .getFrequency() : 0;
+                if (frequency <= 0) {
+                    frequency = org.lwjgl.opengl.Display.getDesktopDisplayMode()
+                        .getFrequency();
+                }
                 if (frequency > 0) {
                     refresh = frequency;
                 }
@@ -731,6 +757,7 @@ public final class ClientScanner {
 
     private void resetServer() {
         serverGeneration++;
+        ClientReports.INSTANCE.reset();
         reading = false;
         cancelling = false;
         serverPaused = false;

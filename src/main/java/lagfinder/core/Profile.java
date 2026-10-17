@@ -121,13 +121,13 @@ public final class Profile {
         profile.thread = in.readUTF();
         profile.intervalMs = in.readFloat();
         profile.samples = in.readInt();
-        int mods = in.readShort();
+        int mods = ReportInput.count(in, in.readShort(), 32767);
         profile.modMs = new double[mods];
         for (int i = 0; i < mods; i++) {
             profile.mods.add(in.readUTF());
             profile.modMs[i] = in.readDouble();
         }
-        int count = in.readInt();
+        int count = ReportInput.count(in, in.readInt(), 200_000);
         String[] table = new String[count];
         for (int i = 0; i < count; i++) {
             table[i] = in.readUTF();
@@ -135,7 +135,7 @@ public final class Profile {
         if (in.readBoolean()) {
             profile.root = readNode(in, table, null, true);
         }
-        int methods = in.readInt();
+        int methods = ReportInput.count(in, in.readInt(), 200_000);
         for (int i = 0; i < methods; i++) {
             profile.methods.add(readNode(in, table, null, false));
         }
@@ -147,13 +147,16 @@ public final class Profile {
         CallNode node = new CallNode();
         node.parent = parent;
         node.depth = parent == null ? 0 : parent.depth + 1;
-        node.className = table[in.readInt()];
-        node.method = table[in.readInt()];
+        if (node.depth > 256) {
+            throw new IOException("Report call tree is too deep");
+        }
+        node.className = table[ReportInput.index(in.readInt(), table.length)];
+        node.method = table[ReportInput.index(in.readInt(), table.length)];
         node.mod = in.readShort();
         node.totalMs = in.readDouble();
         node.selfMs = in.readDouble();
         node.samples = in.readInt();
-        int mods = in.readShort();
+        int mods = ReportInput.count(in, in.readShort(), 32767);
         int[] ids = new int[mods];
         float[] total = new float[mods], self = new float[mods];
         for (int i = 0; i < mods; i++) {
@@ -163,7 +166,7 @@ public final class Profile {
         }
         node.setMods(ids, total, self);
         if (children) {
-            int count = in.readInt();
+            int count = ReportInput.count(in, in.readInt(), 200_000);
             for (int i = 0; i < count; i++) {
                 node.children.add(readNode(in, table, node, true));
             }

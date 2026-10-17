@@ -26,6 +26,7 @@ public class TimeSlider {
     private final String[] labels;
     private final IntConsumer onChange;
     public boolean enabled = true;
+    public boolean round;
 
     private int value;
     private boolean dragging;
@@ -166,23 +167,24 @@ public class TimeSlider {
         boolean hovered = enabled && (dragging || onTrack(mouseX, mouseY));
         double lit = hover.update(hovered ? 1 : 0, 22);
 
-        int trackY = y + 5;
+        int trackY = y + 6;
         int knobX = x + (int) Math.round(width * shown);
-        Theme.fill(x, trackY, x + width, trackY + 4, 0xFF0B0E12);
-        if (enabled) {
-            int fill = Theme.blend(Theme.ACCENT_DIM, Theme.ACCENT, 0.4 + lit * 0.6);
-            Theme.gradient(x, trackY, knobX, trackY + 4, Theme.blend(fill, 0xFFFFFFFF, 0.2), fill);
-        } else {
-            Theme.fill(x, trackY, knobX, trackY + 4, Theme.BORDER);
-        }
-        Theme.outline(x, trackY, x + width, trackY + 4, Theme.BORDER);
+        int fill = enabled ? Theme.blend(Theme.ACCENT_FILL, Theme.ACCENT, lit) : Theme.BORDER;
+        Theme.fill(x, trackY, x + width, trackY + 2, Theme.TRACK);
+        Theme.fill(x, trackY, knobX, trackY + 2, fill);
 
         int under = labelAt(font, mouseX, mouseY);
+        int labelsRight = Integer.MIN_VALUE;
         for (int i = 0; i < marks.length; i++) {
             int mx = markX(i);
             boolean reached = value >= marks[i];
             boolean exact = value == marks[i];
-            Theme.fill(mx, trackY + 6, mx + 1, trackY + 9, enabled && reached ? Theme.ACCENT : Theme.BORDER);
+            int tick = enabled && reached ? fill : 0xFF3B4D6B;
+            if (round) {
+                Theme.fill(mx, trackY + 4, mx + 1, trackY + 7, tick);
+            } else if (!reached || !enabled) {
+                Theme.fill(mx - 1, trackY, mx + 1, trackY + 2, 0xFF3B4D6B);
+            }
             int color;
             if (!enabled) {
                 color = Theme.TEXT_DISABLED;
@@ -194,16 +196,23 @@ public class TimeSlider {
                 color = Theme.TEXT_MUTED;
             }
             int center = labelCenter(font, i);
-            font.drawString(labels[i], center - font.getStringWidth(labels[i]) / 2, y + 15, color);
+            int labelLeft = center - font.getStringWidth(labels[i]) / 2;
+            if (labelLeft >= labelsRight + 3 || exact) {
+                font.drawString(labels[i], labelLeft, y + 15, color);
+                labelsRight = labelLeft + font.getStringWidth(labels[i]);
+            }
         }
 
-        int kx0 = knobX - 3, kx1 = knobX + 3, ky0 = y, ky1 = y + 14;
-        if (enabled) {
-            Theme.glow(kx0, ky0, kx1, ky1, Theme.ACCENT, 0.4 + 0.6 * lit);
+        int knobColor = !enabled ? Theme.CONTROL_DISABLED
+            : Theme.blend(Theme.ACCENT_FILL, Theme.ACCENT, 0.4 + 0.6 * lit);
+        if (enabled && lit > 0.01) {
+            Theme.disc(knobX + 0.5, trackY + 1, 6.5, (Theme.ACCENT & 0x00FFFFFF) | (int) Math.round(0x40 * lit) << 24);
         }
-        int fill = !enabled ? Theme.CONTROL_DISABLED : Theme.blend(0xFFC9D6E8, 0xFFFFFFFF, lit);
-        Theme.gradient(kx0, ky0, kx1, ky1, fill, Theme.blend(fill, 0xFF000000, 0.18));
-        Theme.outline(kx0, ky0, kx1, ky1, enabled ? Theme.ACCENT : Theme.BORDER);
+        if (round) {
+            Theme.disc(knobX + 0.5, trackY + 1, 4.5, knobColor);
+        } else {
+            Theme.roundRect(knobX - 4, trackY - 3, knobX + 5, trackY + 5, knobColor);
+        }
         if (dragging) {
             // The length being picked, over the knob.
             String text = formatted == null ? "" : formatted.apply(value);

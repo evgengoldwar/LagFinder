@@ -160,11 +160,6 @@ public class GuiSettings extends GuiWindow {
         entries.add(Entry.heading("lagfinder.settings.server", Icons.SMALL_GRID));
         entries.add(
             Entry.toggle(
-                "lagfinder.settings.require_op",
-                () -> Config.requireOp ? 1 : 0,
-                v -> Config.requireOp = v != 0));
-        entries.add(
-            Entry.toggle(
                 "lagfinder.settings.allow_teleport",
                 () -> Config.allowTeleport ? 1 : 0,
                 v -> Config.allowTeleport = v != 0));

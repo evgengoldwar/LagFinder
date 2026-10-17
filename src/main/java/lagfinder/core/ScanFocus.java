@@ -10,7 +10,8 @@ public enum ScanFocus {
     LAG,
     METHODS,
     OBJECTS,
-    ALLOCATIONS;
+    ALLOCATIONS,
+    STEADY;
 
     public static ScanFocus of(int ordinal) {
         return ordinal >= 0 && ordinal < values().length ? values()[ordinal] : LAG;

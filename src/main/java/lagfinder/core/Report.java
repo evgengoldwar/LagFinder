@@ -19,11 +19,13 @@ public final class Report {
 
     private static final int MAGIC = 0x4C46524E; // "LFRN"
     /** 11: the server's own work ({@link Category#SERVER}), which an older reader has no category for. */
-    public static final int VERSION = 13;
+    // 13: medians and GregTech activity per line (this fork); 14: entity ids, to follow an entity (upstream).
+    public static final int VERSION = 17;
 
     public ScanMode mode;
     /** What the scan was for; older reports were all lag scans. */
     public ScanFocus focus = ScanFocus.LAG;
+    public float steadyMedianTickMs, steadyP90TickMs;
     /** When it started (epoch milliseconds) and how long it ran (seconds). */
     public long startedAt;
     public float durationSec;
@@ -74,6 +76,8 @@ public final class Report {
      * marked only by the tick events. Shown with the report.
      */
     public final List<String> warnings = new ArrayList<>();
+    public float[] gcMs;
+    public int[] gcCount;
 
     /**
      * Per bucket: of a frame's time, what it spent waiting (the frame limiter's sleep, the wait for vsync) instead of
@@ -162,6 +166,26 @@ public final class Report {
         return rates;
     }
 
+    public float gcTotalMs() {
+        float total = 0;
+        if (gcMs != null) {
+            for (float value : gcMs) {
+                total += value;
+            }
+        }
+        return total;
+    }
+
+    public int gcTotalCount() {
+        int total = 0;
+        if (gcCount != null) {
+            for (int value : gcCount) {
+                total += value;
+            }
+        }
+        return total;
+    }
+
     public float worstPeriodMs() {
         float worst = 0;
         for (float value : maxMs) {
@@ -225,7 +249,11 @@ public final class Report {
             return 0;
         }
         double work = Math.max(0, frameMs - waitMs);
-        double without = Math.max(Math.max(work - perFrameMs, capFrameMs()), frameMs * 0.02);
+        if (heldToLimit()) {
+            double free = Math.max(work, frameMs * 0.02);
+            return Math.max(0, 1000.0 / Math.max(free - perFrameMs, free * 0.02) - 1000.0 / free);
+        }
+        double without = Math.max(Math.max(work - perFrameMs, capFrameMs(frameMs)), frameMs * 0.02);
         return Math.max(0, 1000.0 / without - 1000.0 / frameMs);
     }
 
@@ -247,7 +275,11 @@ public final class Report {
             return 0;
         }
         double work = Math.max(0, frameMs - waitMs);
-        double longer = Math.max(work + peakMs - averageMs, capFrameMs());
+        if (heldToLimit()) {
+            double free = Math.max(work, frameMs * 0.02);
+            return Math.max(0, 1000.0 / free - 1000.0 / (free + peakMs - averageMs));
+        }
+        double longer = Math.max(work + peakMs - averageMs, capFrameMs(frameMs));
         return Math.max(0, 1000.0 / frameMs - 1000.0 / Math.max(longer, frameMs));
     }
 
@@ -257,12 +289,28 @@ public final class Report {
      * than the limit's; what things take is told in milliseconds of a frame then.
      */
     public boolean costsInFps() {
-        return mode == ScanMode.FPS && !(frameCap > 0 && averageWaitMs() > wallPeriodMs() * 0.2);
+        return mode == ScanMode.FPS;
     }
 
-    /** The length of a frame at the rate the frames were held to (ms), 0 when they weren't. */
-    private double capFrameMs() {
-        return frameCap > 0 ? 1000.0 / frameCap : 0;
+    public boolean heldToLimit() {
+        return mode == ScanMode.FPS && frameCap > 0 && averageWaitMs() > wallPeriodMs() * 0.2;
+    }
+
+    public double unlimitedRate() {
+        double work = wallPeriodMs() - averageWaitMs();
+        return work > 0 ? 1000.0 / work : 0;
+    }
+
+    /**
+     * The length of a frame at the rate the frames were held to (ms), 0 when they weren't, or when the frames went
+     * clearly faster than it: the rate guessed was not what held them.
+     */
+    private double capFrameMs(double frameMs) {
+        if (frameCap <= 0) {
+            return 0;
+        }
+        double capMs = 1000.0 / frameCap;
+        return capMs > frameMs * 1.05 ? 0 : capMs;
     }
 
     public String dimensionName(int dim) {
@@ -336,12 +384,22 @@ public final class Report {
                 out.writeFloat(wait);
             }
         }
+        out.writeFloat(steadyMedianTickMs);
+        out.writeFloat(steadyP90TickMs);
+        boolean gc = gcMs != null && gcCount != null && gcMs.length == rate.length && gcCount.length == rate.length;
+        out.writeBoolean(gc);
+        if (gc) {
+            for (int i = 0; i < gcMs.length; i++) {
+                out.writeFloat(gcMs[i]);
+                out.writeInt(gcCount[i]);
+            }
+        }
         out.flush();
         zip.finish();
     }
 
     public static Report read(InputStream stream) throws IOException {
-        DataInputStream in = new DataInputStream(new GZIPInputStream(stream));
+        DataInputStream in = new ReportInput(new GZIPInputStream(stream));
         if (in.readInt() != MAGIC) {
             throw new IOException("Not a LagFinder report");
         }
@@ -350,7 +408,7 @@ public final class Report {
             throw new IOException("Report version " + version + " is not supported");
         }
         Report report = new Report();
-        report.mode = ScanMode.values()[in.readByte()];
+        report.mode = ScanMode.values()[ReportInput.index(in.readByte(), ScanMode.values().length)];
         report.startedAt = in.readLong();
         report.durationSec = in.readFloat();
         report.source = in.readUTF();
@@ -361,7 +419,10 @@ public final class Report {
             // Reports made before it was kept: the spike of the scan's side as it is set now.
             report.spikeMs = report.mode == ScanMode.TPS ? Config.spikeTpsMs : Config.spikeFpsMs;
         }
-        int buckets = in.readShort();
+        int buckets = ReportInput.count(in, in.readShort(), 32767);
+        if (buckets == 0) {
+            throw new IOException("Report graph is empty");
+        }
         report.rate = new float[buckets];
         report.avgMs = new float[buckets];
         report.maxMs = new float[buckets];
@@ -371,16 +432,22 @@ public final class Report {
             report.avgMs[i] = in.readFloat();
             report.maxMs[i] = in.readFloat();
             report.counts[i] = in.readInt();
+            if (!Float.isFinite(report.avgMs[i]) || !Float.isFinite(report.maxMs[i])
+                || report.avgMs[i] < 0
+                || report.maxMs[i] < 0
+                || report.counts[i] < 0) {
+                throw new IOException("Invalid report graph");
+            }
         }
         // Older reports counted ticks per moment; from their times the rate comes out right for them too.
         report.rate = ratesOf(report.mode, report.counts, report.avgMs);
-        int dims = in.readShort();
+        int dims = ReportInput.count(in, in.readShort(), 32767);
         for (int i = 0; i < dims; i++) {
             report.dimensions.put(in.readInt(), in.readUTF());
         }
-        int count = in.readShort();
+        int count = ReportInput.count(in, in.readShort(), Category.values().length);
         for (int i = 0; i < count; i++) {
-            report.categories.add(ReportEntry.read(in, null, version));
+            report.categories.add(ReportEntry.read(in, null, version, buckets));
         }
         if (version >= 2 && in.readBoolean()) {
             report.profile = Profile.read(in);
@@ -389,7 +456,7 @@ public final class Report {
             report.memory = HeapProfile.read(in);
         }
         if (version >= 4) {
-            report.focus = ScanFocus.of(in.readByte());
+            report.focus = ScanFocus.values()[ReportInput.index(in.readByte(), ScanFocus.values().length)];
         }
         if (version >= 5 && in.readBoolean()) {
             report.allocations = AllocationProfile.read(in, version);
@@ -405,7 +472,7 @@ public final class Report {
             report.lowestSecond = in.readFloat();
         }
         if (version >= 10) {
-            int warningCount = in.readShort();
+            int warningCount = ReportInput.count(in, in.readShort(), 32767);
             for (int i = 0; i < warningCount; i++) {
                 report.warnings.add(in.readUTF());
             }
@@ -413,11 +480,37 @@ public final class Report {
         if (version >= 12) {
             report.frameCap = in.readFloat();
             if (in.readBoolean()) {
-                report.waitMs = new float[in.readShort()];
+                int waits = ReportInput.count(in, in.readShort(), buckets);
+                if (waits != buckets) {
+                    throw new IOException("Invalid report wait graph");
+                }
+                report.waitMs = new float[waits];
                 for (int i = 0; i < report.waitMs.length; i++) {
                     report.waitMs[i] = in.readFloat();
                 }
             }
+        }
+        if (version >= 13) {
+            report.steadyMedianTickMs = in.readFloat();
+            report.steadyP90TickMs = in.readFloat();
+        }
+        if (version >= 15 && in.readBoolean()) {
+            report.gcMs = new float[buckets];
+            report.gcCount = new int[buckets];
+            for (int i = 0; i < buckets; i++) {
+                report.gcMs[i] = in.readFloat();
+                report.gcCount[i] = in.readInt();
+                if (!Float.isFinite(report.gcMs[i]) || report.gcMs[i] < 0 || report.gcCount[i] < 0) {
+                    throw new IOException("Invalid report GC data");
+                }
+            }
+        }
+        if (!Float.isFinite(report.durationSec) || report.durationSec < 0
+            || !Float.isFinite(report.bucketSec)
+            || report.bucketSec < 0
+            || report.periods < 0
+            || in.read() != -1) {
+            throw new IOException("Invalid report data");
         }
         return report;
     }
