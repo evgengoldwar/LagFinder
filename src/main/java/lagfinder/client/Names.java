@@ -1,12 +1,15 @@
 package lagfinder.client;
 
 import java.util.IdentityHashMap;
+import java.util.Locale;
 import java.util.Map;
 
-import net.minecraft.client.resources.I18n;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.util.StatCollector;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
 
 import lagfinder.core.Category;
 import lagfinder.core.ReportEntry;
@@ -28,7 +31,7 @@ public final class Names {
     }
 
     public static String category(Category category) {
-        return I18n.format("lagfinder.category." + category.id);
+        return I18n.get("lagfinder.category." + category.id);
     }
 
     /** The short name of a category in the given mode ("Tile entities" scans ticks or frames). */
@@ -36,8 +39,8 @@ public final class Names {
         String key = "lagfinder.category." + category.id
             + "."
             + mode.name()
-                .toLowerCase();
-        return StatCollector.canTranslate(key) ? I18n.format(key) : category(category);
+                .toLowerCase(Locale.ROOT);
+        return I18n.exists(key) ? I18n.get(key) : category(category);
     }
 
     /** The name of the line: a category, a mod, a kind of thing, or for an instance its kind's name. */
@@ -60,47 +63,46 @@ public final class Names {
     }
 
     private static String find(ReportEntry entry) {
-        if (entry.translationKey != null && entry.translationKey.startsWith("gt.blockmachines.")) {
-            String translated = translatedName(entry.translationKey);
-            if (translated != null) {
-                return translated;
-            }
+        String translated = translatedName(entry.translationKey);
+        if (translated != null) {
+            return translated;
         }
         ItemStack stack = icon(entry);
         if (stack != null) {
             try {
-                String name = stack.getDisplayName();
-                if (name != null && !name.isEmpty() && !name.contains(".name")) {
+                String name = stack.getHoverName()
+                    .getString();
+                if (name != null && !name.isEmpty()) {
                     return name;
                 }
             } catch (Throwable ignored) {
-                // Fall back to the server's name.
+                // The server's name then.
             }
         }
-        String translated = translatedName(entry.translationKey);
-        return translated != null ? translated : entry.name;
+        return entry.name;
     }
 
     private static String translatedName(String key) {
-        if (key == null || !StatCollector.canTranslate(key)) {
+        if (key == null || !I18n.exists(key)) {
             return null;
         }
-        String name = StatCollector.translateToLocal(key);
-        return name == null || name.isEmpty() || name.contains(".name") ? null : name;
+        String name = I18n.get(key);
+        return name == null || name.isEmpty() ? null : name;
     }
 
     /** The item standing for the line (its own or its kind's), or null. */
     public static ItemStack icon(ReportEntry entry) {
-        if (entry.level == 3 && entry.parent != null && entry.itemId < 0) {
+        if (entry.level == 3 && entry.parent != null && entry.item == null) {
             return icon(entry.parent);
         }
-        if (entry.itemId < 0) {
+        if (entry.item == null) {
             return null;
         }
         Object stack = ICONS.get(entry);
         if (stack == null) {
-            Item item = Item.getItemById(entry.itemId);
-            stack = item == null ? NONE : new ItemStack(item, 1, entry.itemDamage);
+            ResourceLocation id = ResourceLocation.tryParse(entry.item);
+            Item item = id == null ? null : BuiltInRegistries.ITEM.get(id);
+            stack = item == null || item == Items.AIR ? NONE : new ItemStack(item);
             ICONS.put(entry, stack);
         }
         return stack == NONE ? null : (ItemStack) stack;

@@ -1,7 +1,7 @@
 package lagfinder.client.gui.ui;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiButton;
+import lagfinder.client.gui.ui.GuiButton;
 
 /** Flat button without the vanilla stone texture. */
 public class FlatButton extends GuiButton {
@@ -68,12 +68,12 @@ public class FlatButton extends GuiButton {
             Icons.draw(icon, xPosition + 6 + (slot - iconWidth) / 2, yPosition + (height - icon.length) / 2, shade);
             int textX = xPosition + 6 + slot + 5;
             // Room left on the right for a mark the screen may put there.
-            String text = Theme.ellipsize(mc.fontRenderer, displayString, xPosition + width - 10 - textX);
-            Theme.text(mc.fontRenderer, text, textX, yPosition + (height - 8) / 2, color);
+            String text = Theme.ellipsize(lagfinder.client.gui.ui.FontRenderer.INSTANCE, displayString, xPosition + width - 10 - textX);
+            Theme.text(lagfinder.client.gui.ui.FontRenderer.INSTANCE, text, textX, yPosition + (height - 8) / 2, color);
             return;
         }
-        String text = Theme.ellipsize(mc.fontRenderer, displayString, width - 6);
-        Theme.centered(mc.fontRenderer, text, xPosition + width / 2, yPosition + (height - 8) / 2, color);
+        String text = Theme.ellipsize(lagfinder.client.gui.ui.FontRenderer.INSTANCE, displayString, width - 6);
+        Theme.centered(lagfinder.client.gui.ui.FontRenderer.INSTANCE, text, xPosition + width / 2, yPosition + (height - 8) / 2, color);
     }
 
     /** The box: lit by the mouse with a short fade, in the accent color when active. */

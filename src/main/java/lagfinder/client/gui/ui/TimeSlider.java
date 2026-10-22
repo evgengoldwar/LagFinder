@@ -4,9 +4,9 @@ import java.util.function.IntConsumer;
 import java.util.function.IntFunction;
 import java.util.function.IntUnaryOperator;
 
-import net.minecraft.client.gui.FontRenderer;
+import lagfinder.client.gui.ui.FontRenderer;
 
-import org.lwjgl.input.Mouse;
+import lagfinder.client.gui.ui.Mouse;
 
 /**
  * A slider for a length of time, with marks under it at the lengths most often picked. The marks are spread evenly

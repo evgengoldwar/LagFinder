@@ -1,11 +1,12 @@
 package lagfinder;
 
-import java.io.File;
+import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModContainer;
+import net.neoforged.fml.config.ModConfig;
+import net.neoforged.fml.event.config.ModConfigEvent;
+import net.neoforged.neoforge.common.ModConfigSpec;
 
-import net.minecraftforge.common.config.Configuration;
-import net.minecraftforge.common.config.Property;
-
-public class Config {
+public final class Config {
 
     public static boolean allowTeleport = true;
     /** Longest scan a player may ask for (seconds). */
@@ -24,130 +25,54 @@ public class Config {
     public static int allocSampleRate = 500;
     /** How long a highlight stays in the world (seconds). */
     public static int highlightSeconds = 120;
-    public static int worldMsRadius = 16;
-    public static int worldMsMaxLabels = 36;
-    public static float worldMsMinMs = 0.01f;
 
-    /** The file the settings were read from, to write the ones changed in the game back to it. */
-    private static Configuration configuration;
+    private static final ModConfigSpec SERVER_SPEC;
+    private static final ModConfigSpec.BooleanValue ALLOW_TELEPORT;
+    private static final ModConfigSpec.IntValue MAX_SCAN_SECONDS;
+    private static final ModConfigSpec.DoubleValue SPIKE_TPS_MS;
+    private static final ModConfigSpec.IntValue LIGHT_SCAN_EVERY;
 
-    public static void synchronizeConfiguration(File configFile) {
-        configuration = new Configuration(configFile);
+    private static final ModConfigSpec CLIENT_SPEC;
+    private static final ModConfigSpec.IntValue HIGHLIGHT_SECONDS;
 
-        allowTeleport = configuration.getBoolean(
-            "allowTeleport",
-            "server",
-            allowTeleport,
-            "Operators and single player owners may teleport from reports, even where everyone may scan.");
-        maxScanSeconds = configuration
-            .getInt("maxScanSeconds", "server", maxScanSeconds, 5, 3600, "Longest tick scan a player may run.");
-        spikeTpsMs = configuration.getFloat(
-            "spikeTpsMs",
-            "scan",
-            spikeTpsMs,
-            0.01f,
-            1000f,
-            "A tick in which one thing took at least this long (ms) counts as a spike for it.");
-        spikeFpsMs = configuration.getFloat(
-            "spikeFpsMs",
-            "scan",
-            spikeFpsMs,
-            0.01f,
-            1000f,
-            "A frame in which one thing took at least this long (ms) counts as a spike for it.");
-        lightScanEvery = configuration.getInt(
-            "lightScanEvery",
-            "scan",
-            lightScanEvery,
-            2,
-            20,
-            "A light tick scan measures one tick in this many and lets the others run untouched: the server barely slows down and averages stay right, but a single short spike can fall between measured ticks.");
-        sampleIntervalMs = configuration.getInt(
-            "sampleIntervalMs",
-            "scan",
-            sampleIntervalMs,
-            1,
-            100,
-            "Milliseconds between samples of the stack. Lower is more precise but costs more.");
-        heapSnapshots = configuration.getInt(
-            "heapSnapshots",
-            "memory",
-            heapSnapshots,
-            0,
-            20,
-            "How many times the objects in the heap are counted by class along an Objects scan (the first at its start, the last near its end; at least 2). Each count stops the game for a moment (seconds on a big heap).");
-        heapLiveOnly = configuration.getBoolean(
-            "heapLiveOnly",
-            "memory",
-            heapLiveOnly,
-            "Count only the objects still in use: a full garbage collection is made before each count, which takes longer. Off counts garbage too.");
-        allocSampleRate = configuration.getInt(
-            "allocSampleRate",
-            "memory",
-            allocSampleRate,
-            20,
-            10000,
-            "How many allocations a second Java's Flight Recorder takes samples of at most along an Allocations scan (Java 16 and later). More is more precise but costs more.");
-        highlightSeconds = configuration.getInt(
-            "highlightSeconds",
-            "client",
-            highlightSeconds,
-            5,
-            3600,
-            "How long a highlight stays in the world.");
+    static {
+        ModConfigSpec.Builder server = new ModConfigSpec.Builder();
+        ALLOW_TELEPORT = server
+            .comment("Players with the lagfinder.teleport permission (operators by default) may teleport from reports.")
+            .define("allowTeleport", allowTeleport);
+        MAX_SCAN_SECONDS = server.comment("Longest tick scan a player may run (seconds).")
+            .defineInRange("maxScanSeconds", maxScanSeconds, 5, 3600);
+        SPIKE_TPS_MS = server.comment("A tick in which one thing took at least this long (ms) counts as a spike for it.")
+            .defineInRange("spikeTpsMs", spikeTpsMs, 0.01, 1000);
+        LIGHT_SCAN_EVERY = server.comment(
+            "A light tick scan measures one tick in this many and lets the others run untouched: the server barely slows down and averages stay right, but a single short spike can fall between measured ticks.")
+            .defineInRange("lightScanEvery", lightScanEvery, 2, 20);
+        SERVER_SPEC = server.build();
 
-        worldMsRadius = configuration.getInt(
-            "worldMsRadius",
-            "client",
-            worldMsRadius,
-            4,
-            48,
-            "How far world millisecond labels are drawn, in blocks.");
-        worldMsMaxLabels = configuration.getInt(
-            "worldMsMaxLabels",
-            "client",
-            worldMsMaxLabels,
-            1,
-            96,
-            "Maximum nearby machine time labels shown in the world.");
-        worldMsMinMs = configuration.getFloat(
-            "worldMsMinMs",
-            "client",
-            worldMsMinMs,
-            0f,
-            10f,
-            "Minimum average milliseconds per tick for a nearby label. The block under the crosshair is always shown if measured.");
-
-        if (configuration.hasChanged()) {
-            configuration.save();
-        }
+        ModConfigSpec.Builder client = new ModConfigSpec.Builder();
+        HIGHLIGHT_SECONDS = client.comment("How long a highlight stays in the world (seconds).")
+            .defineInRange("highlightSeconds", highlightSeconds, 5, 3600);
+        CLIENT_SPEC = client.build();
     }
 
-    /** Writes the settings as they are now to the file (changed in the settings tab). */
-    public static void save() {
-        if (configuration == null) {
-            return;
-        }
-        put("server", "allowTeleport", allowTeleport);
-        put("server", "maxScanSeconds", maxScanSeconds);
-        put("scan", "spikeTpsMs", spikeTpsMs);
-        put("scan", "spikeFpsMs", spikeFpsMs);
-        put("scan", "sampleIntervalMs", sampleIntervalMs);
-        put("memory", "heapSnapshots", heapSnapshots);
-        put("memory", "heapLiveOnly", heapLiveOnly);
-        put("memory", "allocSampleRate", allocSampleRate);
-        put("client", "highlightSeconds", highlightSeconds);
-        configuration.save();
+    private Config() {}
+
+    static void register(ModContainer container, IEventBus modBus) {
+        container.registerConfig(ModConfig.Type.SERVER, SERVER_SPEC);
+        container.registerConfig(ModConfig.Type.CLIENT, CLIENT_SPEC);
+        modBus.addListener(ModConfigEvent.Loading.class, event -> read(event.getConfig()));
+        modBus.addListener(ModConfigEvent.Reloading.class, event -> read(event.getConfig()));
     }
 
-    private static void put(String category, String key, Object value) {
-        if (!configuration.hasCategory(category)) {
-            return;
-        }
-        Property property = configuration.getCategory(category)
-            .get(key);
-        if (property != null) {
-            property.set(String.valueOf(value));
+    private static void read(ModConfig config) {
+        if (config.getSpec() == SERVER_SPEC) {
+            allowTeleport = ALLOW_TELEPORT.get();
+            maxScanSeconds = MAX_SCAN_SECONDS.get();
+            spikeTpsMs = SPIKE_TPS_MS.get()
+                .floatValue();
+            lightScanEvery = LIGHT_SCAN_EVERY.get();
+        } else if (config.getSpec() == CLIENT_SPEC) {
+            highlightSeconds = HIGHLIGHT_SECONDS.get();
         }
     }
 }

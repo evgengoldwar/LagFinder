@@ -1,0 +1,20 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "lagfinder.mixins",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "MixinBlockEntity",
+    "MixinBoundTickingBlockEntity",
+    "MixinChunkWaits",
+    "MixinMinecraftServer",
+    "MixinServerChunkCache",
+    "MixinServerLevel"
+  ],
+  "client": [
+    "client.MixinIntegratedServer"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

@@ -2,14 +2,12 @@ package lagfinder.client.gui;
 
 import java.util.List;
 
-import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.resources.I18n;
+import lagfinder.client.gui.ui.GuiButton;
+import net.minecraft.client.resources.language.I18n;
 
-import org.lwjgl.Sys;
-import org.lwjgl.input.Keyboard;
+import lagfinder.client.gui.ui.Keyboard;
 
 import lagfinder.LagFinder;
-import lagfinder.Tags;
 import lagfinder.client.KeyHandler;
 import lagfinder.client.gui.ui.FlatButton;
 import lagfinder.client.gui.ui.Icons;
@@ -58,7 +56,7 @@ public class GuiAbout extends GuiWindow {
     protected void pressed(GuiButton button) {
         if (button.id == ID_GITHUB) {
             try {
-                Sys.openURL(URL);
+                net.minecraft.Util.getPlatform().openUri(URL);
             } catch (Throwable t) {
                 LagFinder.LOG.warn("Could not open {}", URL, t);
             }
@@ -67,8 +65,8 @@ public class GuiAbout extends GuiWindow {
 
     @Override
     protected void keyTyped(char typedChar, int keyCode) {
-        if (keyCode == Keyboard.KEY_ESCAPE || keyCode == mc.gameSettings.keyBindInventory.getKeyCode()
-            || keyCode == KeyHandler.OPEN.getKeyCode()) {
+        if (keyCode == Keyboard.KEY_ESCAPE || mc.options.keyInventory.matches(keyCode, 0)
+            || KeyHandler.isOpenKey(keyCode)) {
             closeWindow();
         }
     }
@@ -94,7 +92,7 @@ public class GuiAbout extends GuiWindow {
         Icons.draw(Icons.LOGO, bx + (badge - iconWidth) / 2, by + (badge - iconHeight) / 2, Theme.ACCENT, scale);
         int textX = bx + badge + 12;
         fontRendererObj.drawStringWithShadow("LagFinder", textX, y0 + 12, Theme.TEXT);
-        String version = I18n.format("lagfinder.about.version", Tags.VERSION);
+        String version = I18n.get("lagfinder.about.version", lagfinder.LagFinder.version);
         Theme.pill(
             fontRendererObj,
             version,
@@ -102,12 +100,12 @@ public class GuiAbout extends GuiWindow {
             y0 + 10,
             Theme.ACCENT);
         int room = x1 - 10 - 80 - textX;
-        List<String> lines = fontRendererObj.listFormattedStringToWidth(I18n.format("lagfinder.about.text"), room);
+        List<String> lines = fontRendererObj.listFormattedStringToWidth(I18n.get("lagfinder.about.text"), room);
         for (int i = 0; i < lines.size() && i < 2; i++) {
             fontRendererObj.drawString(lines.get(i), textX, y0 + 26 + i * 10, Theme.TEXT_MUTED);
         }
         fontRendererObj.drawString(
-            I18n.format("lagfinder.about.author", "evgenwargold"),
+            I18n.get("lagfinder.about.author", "evgenwargold"),
             textX,
             y0 + TOP_HEIGHT - 13,
             Theme.TEXT_DISABLED);
@@ -116,10 +114,10 @@ public class GuiAbout extends GuiWindow {
     /** Each kind of scan, in a line. */
     private void drawKinds() {
         int x0 = contentLeft, x1 = contentRight, y0 = kindsY;
-        section(x0, y0, x1, y0 + KINDS_HEIGHT, null, I18n.format("lagfinder.about.kinds"));
+        section(x0, y0, x1, y0 + KINDS_HEIGHT, null, I18n.get("lagfinder.about.kinds"));
         int titleWidth = 0;
         for (String title : KIND_TITLES) {
-            titleWidth = Math.max(titleWidth, fontRendererObj.getStringWidth(I18n.format(title)));
+            titleWidth = Math.max(titleWidth, fontRendererObj.getStringWidth(I18n.get(title)));
         }
         for (int i = 0; i < KIND_TITLES.length; i++) {
             int y = y0 + 20 + i * 22;
@@ -129,9 +127,9 @@ public class GuiAbout extends GuiWindow {
             int color = KIND_COLORS[i];
             Theme.gradient(x0 + 8, y + 3, x0 + 10, y + 18, color, Theme.blend(color, 0xFF000000, 0.5));
             Icons.draw(KIND_ICONS[i], x0 + 15, y + 11 - KIND_ICONS[i].length / 2, color);
-            fontRendererObj.drawString(I18n.format(KIND_TITLES[i]), x0 + 32, y + 7, Theme.TEXT);
+            fontRendererObj.drawString(I18n.get(KIND_TITLES[i]), x0 + 32, y + 7, Theme.TEXT);
             int textX = x0 + 32 + titleWidth + 12;
-            String text = Theme.ellipsize(fontRendererObj, I18n.format(KIND_TEXTS[i]), x1 - 10 - textX);
+            String text = Theme.ellipsize(fontRendererObj, I18n.get(KIND_TEXTS[i]), x1 - 10 - textX);
             fontRendererObj.drawString(text, textX, y + 7, Theme.TEXT_MUTED);
         }
     }
@@ -139,10 +137,10 @@ public class GuiAbout extends GuiWindow {
     /** How to get around: the key, the scan going on with the window closed, the logs. */
     private void drawTips() {
         int x0 = contentLeft, x1 = contentRight, y0 = tipsY, y1 = contentBottom;
-        section(x0, y0, x1, y1, Icons.SMALL_BOLT, I18n.format("lagfinder.about.tips"));
-        String[] tips = { I18n.format("lagfinder.about.tip_key", KeyHandler.keyName()),
-            I18n.format("lagfinder.about.tip_background"), I18n.format("lagfinder.about.tip_logs"),
-            I18n.format("lagfinder.about.tip_settings") };
+        section(x0, y0, x1, y1, Icons.SMALL_BOLT, I18n.get("lagfinder.about.tips"));
+        String[] tips = { I18n.get("lagfinder.about.tip_key", KeyHandler.keyName()),
+            I18n.get("lagfinder.about.tip_background"), I18n.get("lagfinder.about.tip_logs"),
+            I18n.get("lagfinder.about.tip_settings") };
         int y = y0 + 20;
         for (String tip : tips) {
             List<String> lines = fontRendererObj.listFormattedStringToWidth(tip, x1 - x0 - 30);

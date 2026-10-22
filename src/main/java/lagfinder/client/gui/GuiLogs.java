@@ -9,15 +9,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.resources.I18n;
+import lagfinder.client.gui.ui.GuiButton;
+import net.minecraft.client.resources.language.I18n;
 
-import org.lwjgl.Sys;
-import org.lwjgl.input.Keyboard;
-import org.lwjgl.input.Mouse;
+import lagfinder.client.gui.ui.Keyboard;
+import lagfinder.client.gui.ui.Mouse;
 
 import lagfinder.LagFinder;
-import lagfinder.client.ClientReports;
 import lagfinder.client.ClientScanner;
 import lagfinder.client.ReportStore;
 import lagfinder.client.gui.ui.FlatButton;
@@ -37,25 +35,20 @@ import lagfinder.core.ScanMode;
 public class GuiLogs extends GuiWindow {
 
     private static final int ROW = 22, OPEN_WIDTH = 64, DELETE_WIDTH = 22;
-    private static final int ID_FOLDER = 1, ID_DELETE_ALL = 2, ID_SOURCE = 3, ID_FILTER = 10;
+    private static final int ID_FOLDER = 1, ID_DELETE_ALL = 2, ID_FILTER = 10;
     /** How long a delete waits for its second click (ms). */
     private static final long CONFIRM_MS = 4000;
 
     /** The kinds of scans the list can be cut to; null shows all. */
-    private static final ScanFocus[] FILTERS = { null, ScanFocus.LAG, ScanFocus.METHODS, ScanFocus.OBJECTS,
-        ScanFocus.ALLOCATIONS, ScanFocus.STEADY };
-    private static final String[] FILTER_KEYS = { "lagfinder.logs.all", "lagfinder.logs.lag", "lagfinder.logs.methods",
-        "lagfinder.logs.objects", "lagfinder.logs.alloc", "lagfinder.logs.steady" };
+    private static final ScanFocus[] FILTERS = { null, ScanFocus.LAG };
+    private static final String[] FILTER_KEYS = { "lagfinder.logs.all", "lagfinder.logs.lag" };
     private static int filter;
 
     private final List<ReportFiles.Saved> all = new ArrayList<>();
     private final List<ReportFiles.Saved> shown = new ArrayList<>();
     private final Map<ReportFiles.Saved, Smooth> lights = new HashMap<>();
     private final List<FlatButton> filterButtons = new ArrayList<>();
-    private FlatButton deleteAllButton, sourceButton, folderButton;
-    /** The list shows the server's shared archive instead of this computer's reports. */
-    private boolean serverSource;
-    private int serverRevision = -1;
+    private FlatButton deleteAllButton, folderButton;
     /** The report waiting for a second click to be deleted, and since when. */
     private ReportFiles.Saved confirming;
     private long confirmingAt;
@@ -78,19 +71,15 @@ public class GuiLogs extends GuiWindow {
     @Override
     protected void layOut() {
         reload();
-        int sourceY = contentTop;
-        int filtersY = sourceY + 24;
+        int filtersY = contentTop;
         listTop = filtersY + 16 + 8;
         int buttonsY = contentBottom - 20;
         listHeight = buttonsY - 8 - listTop;
 
         filterButtons.clear();
-        // This computer's reports, or the server's shared archive (operators and allowed ranks).
-        sourceButton = new FlatButton(ID_SOURCE, contentLeft, sourceY, contentRight - contentLeft, 20, "");
-        buttonList.add(sourceButton);
         int x = contentLeft;
         for (int i = 0; i < FILTERS.length; i++) {
-            String text = I18n.format(FILTER_KEYS[i]);
+            String text = I18n.get(FILTER_KEYS[i]);
             FlatButton button = new FlatButton(
                 ID_FILTER + i,
                 x,
@@ -102,7 +91,7 @@ public class GuiLogs extends GuiWindow {
             filterButtons.add(button);
             buttonList.add(button);
         }
-        String folder = I18n.format("lagfinder.logs.folder");
+        String folder = I18n.get("lagfinder.logs.folder");
         folderButton = new FlatButton(
             ID_FOLDER,
             contentLeft,
@@ -122,14 +111,8 @@ public class GuiLogs extends GuiWindow {
     private void reload() {
         all.clear();
         lights.clear();
-        if (serverSource) {
-            all.addAll(ClientReports.INSTANCE.list());
-        } else {
-            all.addAll(ReportStore.list());
-            // The menu counts this computer's reports.
-            savedCount = all.size();
-        }
-        serverRevision = ClientReports.INSTANCE.revision();
+        all.addAll(ReportStore.list());
+        savedCount = all.size();
         applyFilter();
     }
 
@@ -154,16 +137,10 @@ public class GuiLogs extends GuiWindow {
         for (int i = 0; i < filterButtons.size(); i++) {
             filterButtons.get(i).active = i == filter;
         }
-        sourceButton.enabled = ClientScanner.INSTANCE.serverArchiveAvailable() || serverSource;
-        sourceButton.displayString = I18n.format(serverSource ? "lagfinder.logs.server" : "lagfinder.logs.local");
-        folderButton.displayString = I18n.format(serverSource ? "lagfinder.logs.refresh" : "lagfinder.logs.folder");
-        folderButton.enabled = !serverSource || !ClientReports.INSTANCE.loading();
-        // The server's reports are only read from here, never deleted.
-        deleteAllButton.visible = !serverSource;
-        deleteAllButton.enabled = !serverSource && !shown.isEmpty();
+        deleteAllButton.enabled = !shown.isEmpty();
         deleteAllButton.active = confirmingAllAt != 0;
-        deleteAllButton.displayString = confirmingAllAt != 0 ? I18n.format("lagfinder.logs.delete_all_sure")
-            : I18n.format(filter == 0 ? "lagfinder.logs.delete_all" : "lagfinder.logs.delete_shown") + " ("
+        deleteAllButton.displayString = confirmingAllAt != 0 ? I18n.get("lagfinder.logs.delete_all_sure")
+            : I18n.get(filter == 0 ? "lagfinder.logs.delete_all" : "lagfinder.logs.delete_shown") + " ("
                 + shown.size()
                 + ")";
     }
@@ -182,25 +159,9 @@ public class GuiLogs extends GuiWindow {
 
     @Override
     protected void pressed(GuiButton button) {
-        if (button.id == ID_SOURCE) {
-            serverSource = !serverSource;
-            confirming = null;
-            confirmingAllAt = 0;
-            scroll = 0;
-            shownScroll.set(0);
-            if (serverSource) {
-                ClientReports.INSTANCE.listReports();
-            } else {
-                ClientReports.INSTANCE.reset();
-            }
-            reload();
-        } else if (button.id == ID_FOLDER) {
-            if (serverSource) {
-                ClientReports.INSTANCE.listReports();
-            } else {
-                openFolder();
-            }
-        } else if (button.id == ID_DELETE_ALL && !serverSource) {
+        if (button.id == ID_FOLDER) {
+            openFolder();
+        } else if (button.id == ID_DELETE_ALL) {
             if (confirmingAllAt == 0) {
                 confirmingAllAt = System.currentTimeMillis();
                 confirming = null;
@@ -213,7 +174,7 @@ public class GuiLogs extends GuiWindow {
                 }
                 confirmingAllAt = 0;
                 reload();
-                tell(I18n.format("lagfinder.logs.deleted_many", deleted));
+                tell(I18n.get("lagfinder.logs.deleted_many", deleted));
             }
         } else if (button.id >= ID_FILTER && button.id < ID_FILTER + FILTERS.length) {
             filter = button.id - ID_FILTER;
@@ -238,7 +199,7 @@ public class GuiLogs extends GuiWindow {
                     .open(folder);
             } catch (Throwable t) {
                 try {
-                    Sys.openURL("file://" + folder.getAbsolutePath());
+                    net.minecraft.Util.getPlatform().openUri("file://" + folder.getAbsolutePath());
                 } catch (Throwable u) {
                     LagFinder.LOG.warn("Could not open the reports' folder {}", folder, u);
                 }
@@ -300,21 +261,21 @@ public class GuiLogs extends GuiWindow {
         ReportFiles.Saved saved = shown.get(index);
         int rowY = listTop + index * ROW - scroll;
         boolean onButtons = mouseY >= rowY + 3 && mouseY < rowY + ROW - 3;
-        if (!serverSource && confirming == saved
+        if (confirming == saved
             && onButtons
             && mouseX >= openX()
             && mouseX < deleteX() + DELETE_WIDTH) {
             confirming = null;
             if (ReportStore.delete(saved)) {
                 reload();
-                tell(I18n.format("lagfinder.logs.deleted"));
+                tell(I18n.get("lagfinder.logs.deleted"));
             } else {
-                tell(I18n.format("lagfinder.logs.not_deleted"));
+                tell(I18n.get("lagfinder.logs.not_deleted"));
             }
             refresh();
             return;
         }
-        if (!serverSource && onButtons && mouseX >= deleteX() && mouseX < deleteX() + DELETE_WIDTH) {
+        if (onButtons && mouseX >= deleteX() && mouseX < deleteX() + DELETE_WIDTH) {
             confirming = saved;
             confirmingAt = System.currentTimeMillis();
             confirmingAllAt = 0;
@@ -325,14 +286,9 @@ public class GuiLogs extends GuiWindow {
     }
 
     private void open(ReportFiles.Saved saved) {
-        if (serverSource) {
-            // Asked of the server; it opens when it arrives (see updateScreen).
-            ClientReports.INSTANCE.open(saved);
-            return;
-        }
         Report report = ReportStore.load(saved.name);
         if (report == null) {
-            tell(I18n.format("lagfinder.logs.unreadable"));
+            tell(I18n.get("lagfinder.logs.unreadable"));
             return;
         }
         ClientScanner.INSTANCE.setReport(report);
@@ -356,21 +312,6 @@ public class GuiLogs extends GuiWindow {
             listBar.release();
         }
         super.mouseMovedOrUp(mouseX, mouseY, button);
-    }
-
-    @Override
-    public void updateScreen() {
-        super.updateScreen();
-        if (serverSource) {
-            if (serverRevision != ClientReports.INSTANCE.revision()) {
-                reload();
-            }
-            Report report = ClientReports.INSTANCE.takeReport();
-            if (report != null) {
-                ClientScanner.INSTANCE.setReport(report);
-                GuiLagFinder.open(mc, report);
-            }
-        }
     }
 
     @Override
@@ -405,7 +346,7 @@ public class GuiLogs extends GuiWindow {
             bytes += saved.size;
         }
         // How many there are and how much room they take, right of the filters.
-        String count = I18n.format("lagfinder.logs.count", all.size(), size(bytes));
+        String count = I18n.get("lagfinder.logs.count", all.size(), size(bytes));
         FlatButton lastFilter = filterButtons.get(filterButtons.size() - 1);
         int countLeft = lastFilter.xPosition + lastFilter.getWidth() + 8;
         count = Theme.ellipsize(fontRendererObj, count, contentRight - countLeft);
@@ -414,27 +355,17 @@ public class GuiLogs extends GuiWindow {
 
         int x0 = contentLeft, x1 = contentRight, y0 = listTop, y1 = listTop + listHeight;
         Theme.card(x0, y0, x1, y1);
-        boolean loading = serverSource && ClientReports.INSTANCE.loading();
-        String error = serverSource ? ClientReports.INSTANCE.error() : "";
         if (shown.isEmpty()) {
-            String empty = I18n.format(
-                loading ? "lagfinder.logs.loading"
-                    : !error.isEmpty() ? error
-                        : all.isEmpty() ? "lagfinder.logs.empty" : "lagfinder.logs.empty_filter");
+            String empty = I18n.get(all.isEmpty() ? "lagfinder.logs.empty" : "lagfinder.logs.empty_filter");
             Theme.centered(fontRendererObj, empty, (x0 + x1) / 2, (y0 + y1) / 2 - 4, Theme.TEXT_DISABLED);
         } else {
             drawRows(mouseX, mouseY, x0, y0, x1, y1);
         }
 
-        String note = loading ? I18n.format("lagfinder.logs.loading")
-            : !error.isEmpty() ? I18n.format(error)
-                : serverSource ? I18n.format("lagfinder.logs.server_subtitle")
-                    : message != null && System.currentTimeMillis() - messageAt < 4000 ? message : null;
+        String note = message != null && System.currentTimeMillis() - messageAt < 4000 ? message : null;
         if (note != null) {
-            int noteX = serverSource ? folderButton.xPosition + folderButton.getWidth() + 8
-                : deleteAllButton.xPosition - 8 - fontRendererObj.getStringWidth(note);
-            String text = serverSource ? Theme.ellipsize(fontRendererObj, note, contentRight - noteX) : note;
-            fontRendererObj.drawString(text, noteX, folderButton.yPosition + 6, Theme.TEXT_MUTED);
+            int noteX = deleteAllButton.xPosition - 8 - fontRendererObj.getStringWidth(note);
+            fontRendererObj.drawString(note, noteX, folderButton.yPosition + 6, Theme.TEXT_MUTED);
         }
     }
 
@@ -516,7 +447,7 @@ public class GuiLogs extends GuiWindow {
             Theme.outline(bx0, by0, bx1, by1, Theme.DANGER);
             Theme.centered(
                 fontRendererObj,
-                I18n.format("lagfinder.logs.delete_sure"),
+                I18n.get("lagfinder.logs.delete_sure"),
                 (bx0 + bx1) / 2,
                 by0 + (by1 - by0 - 8) / 2,
                 Theme.TEXT);
@@ -529,14 +460,10 @@ public class GuiLogs extends GuiWindow {
         Theme.outline(openX(), by0, openX() + OPEN_WIDTH, by1, openBorder);
         Theme.centered(
             fontRendererObj,
-            I18n.format("lagfinder.logs.open"),
+            I18n.get("lagfinder.logs.open"),
             openX() + OPEN_WIDTH / 2,
             by0 + (by1 - by0 - 8) / 2,
             hovered ? Theme.TEXT : Theme.TEXT_MUTED);
-        if (serverSource) {
-            // The server's reports are only read from here: no bin.
-            return;
-        }
         Theme.fill(deleteX(), by0, deleteX() + DELETE_WIDTH, by1, overDelete ? 0xFF4A2224 : Theme.CONTROL);
         Theme.outline(deleteX(), by0, deleteX() + DELETE_WIDTH, by1, overDelete ? Theme.DANGER : Theme.BORDER);
         Icons.draw(
@@ -550,12 +477,12 @@ public class GuiLogs extends GuiWindow {
     private static String ago(long ms) {
         long minutes = ms / 60000;
         if (minutes < 1) {
-            return I18n.format("lagfinder.logs.just_now");
+            return I18n.get("lagfinder.logs.just_now");
         }
         if (minutes < 60) {
-            return I18n.format("lagfinder.logs.min_ago", minutes);
+            return I18n.get("lagfinder.logs.min_ago", minutes);
         }
-        return I18n.format("lagfinder.logs.hours_ago", minutes / 60);
+        return I18n.get("lagfinder.logs.hours_ago", minutes / 60);
     }
 
     /** A size in bytes, as KB or MB. */

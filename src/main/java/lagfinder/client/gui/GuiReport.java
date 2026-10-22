@@ -14,13 +14,13 @@ import java.util.Set;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
 
-import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
-import net.minecraft.item.ItemStack;
+import lagfinder.client.gui.ui.GuiButton;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.world.item.ItemStack;
 
-import org.lwjgl.input.Keyboard;
-import org.lwjgl.input.Mouse;
+import lagfinder.client.gui.ui.Keyboard;
+import lagfinder.client.gui.ui.Mouse;
 import org.lwjgl.opengl.GL11;
 
 import lagfinder.client.ClientScanner;
@@ -33,6 +33,7 @@ import lagfinder.client.gui.ui.Icons;
 import lagfinder.client.gui.ui.ScaledScreen;
 import lagfinder.client.gui.ui.ScrollbarDrag;
 import lagfinder.client.gui.ui.Smooth;
+import lagfinder.client.gui.ui.Gfx;
 import lagfinder.client.gui.ui.Theme;
 import lagfinder.client.gui.ui.WindowHeader;
 import lagfinder.core.Category;
@@ -79,7 +80,7 @@ public class GuiReport extends ScaledScreen {
     private static boolean importantOnly = true;
 
     private final Report report;
-    private final GuiScreen parent;
+    private final Screen parent;
     private int tab;
     private final Set<ReportEntry> expanded = Collections.newSetFromMap(new IdentityHashMap<>());
     private ReportEntry selected;
@@ -154,7 +155,7 @@ public class GuiReport extends ScaledScreen {
 
     public GuiReport(Report report) {
         this.report = report;
-        GuiScreen open = net.minecraft.client.Minecraft.getMinecraft().currentScreen;
+        Screen open = net.minecraft.client.Minecraft.getInstance().screen;
         this.parent = open instanceof GuiLagFinder || open instanceof GuiLogs ? open : null;
         Names.clear();
         ClientScanner.INSTANCE.markSeen();
@@ -312,7 +313,7 @@ public class GuiReport extends ScaledScreen {
 
         String text = search != null ? search.getText() : "";
         search = new FlatTextField(fontRendererObj, listLeft, bodyTop, listWidth - 110, 16);
-        search.setHint(I18n.format("lagfinder.gui.search"));
+        search.setHint(I18n.get("lagfinder.gui.search"));
         search.setMaxStringLength(64);
         search.setText(text);
         search.setOnCleared(this::rebuild);
@@ -329,7 +330,7 @@ public class GuiReport extends ScaledScreen {
     }
 
     private void updateSortButton() {
-        sortButton.displayString = I18n.format(sort.key);
+        sortButton.displayString = I18n.get(sort.key);
         importantButton.active = importantOnly;
     }
 
@@ -509,7 +510,7 @@ public class GuiReport extends ScaledScreen {
         if (entry.level == 3) {
             // Things aren't lines of the tree: their kind is picked, and its cards open at this one.
             reveal(entry.parent);
-            mc.displayGuiScreen(new GuiInstances(report, entry.parent, this).focusOn(entry));
+            mc.setScreen(new GuiInstances(report, entry.parent, this).focusOn(entry));
             return;
         }
         int index = report.categories.indexOf(root(entry));
@@ -585,7 +586,7 @@ public class GuiReport extends ScaledScreen {
 
     private void close() {
         GuiLagFinder.forgetReopen();
-        mc.displayGuiScreen(parent);
+        mc.setScreen(parent);
     }
 
     @Override
@@ -651,8 +652,8 @@ public class GuiReport extends ScaledScreen {
         if (wheel == 0) {
             return;
         }
-        int x = Mouse.getEventX() * width / mc.displayWidth;
-        int y = height - Mouse.getEventY() * height / mc.displayHeight - 1;
+        int x = Mouse.getEventX() * width / mc.getWindow().getWidth();
+        int y = height - Mouse.getEventY() * height / mc.getWindow().getHeight() - 1;
         if (Theme.inside(x, y, listLeft, listTop, listRight, bodyBottom)) {
             scroll -= Integer.signum(wheel) * 3 * TYPE_ROW;
             clampScroll();
@@ -706,7 +707,7 @@ public class GuiReport extends ScaledScreen {
         if (keyCode == Keyboard.KEY_TAB && !tabOrder.isEmpty()) {
             int at = Math.max(0, tabOrder.indexOf(tab));
             int count = tabOrder.size();
-            tab = tabOrder.get((at + (isShiftKeyDown() ? count - 1 : 1)) % count);
+            tab = tabOrder.get((at + (hasShiftDown() ? count - 1 : 1)) % count);
             scroll = 0;
             rebuild();
             return;
@@ -789,20 +790,19 @@ public class GuiReport extends ScaledScreen {
         }
         Theme.fill(0, 0, width, height, Theme.SCREEN_DIM);
         Theme.panel(panelLeft, panelTop, panelRight, panelBottom);
-        String title = I18n
-            .format(report.mode == ScanMode.TPS ? "lagfinder.report.title_tps" : "lagfinder.report.title_fps");
+        String title = I18n.get(report.mode == ScanMode.TPS ? "lagfinder.report.title_tps" : "lagfinder.report.title_fps");
         String date = new SimpleDateFormat("dd.MM.yyyy HH:mm").format(new Date(report.startedAt));
         String subtitle = date + "  ·  "
             + Names.clock(report.durationSec)
             + "  ·  "
-            + I18n.format(
+            + I18n.get(
                 report.mode == ScanMode.TPS ? "lagfinder.report.ticks" : "lagfinder.report.frames",
                 report.periods)
             + (report.source == null || report.source.isEmpty() ? "" : "  ·  " + report.source);
         boolean warned = !report.warnings.isEmpty();
         if (warned) {
             // Something the scan couldn't measure as it should: said up front, with what in the tooltip.
-            subtitle = I18n.format("lagfinder.warning.count", report.warnings.size()) + "  ·  " + subtitle;
+            subtitle = I18n.get("lagfinder.warning.count", report.warnings.size()) + "  ·  " + subtitle;
         }
         WindowHeader.draw(
             fontRendererObj,
@@ -816,10 +816,10 @@ public class GuiReport extends ScaledScreen {
             warned ? WARN : Theme.TEXT_MUTED,
             null);
         if (warned) {
-            StringBuilder tip = new StringBuilder(I18n.format("lagfinder.warning.title"));
+            StringBuilder tip = new StringBuilder(I18n.get("lagfinder.warning.title"));
             for (String warning : report.warnings) {
                 tip.append("\n- ")
-                    .append(I18n.format(warning));
+                    .append(I18n.get(warning));
             }
             hit(
                 panelLeft + 28,
@@ -849,11 +849,11 @@ public class GuiReport extends ScaledScreen {
             }
         }
         if (sortButton.isMouseOver(mouseX, mouseY)) {
-            showTooltip(I18n.format("lagfinder.tip.sort"), mouseX, mouseY);
+            showTooltip(I18n.get("lagfinder.tip.sort"), mouseX, mouseY);
         }
         if (importantButton.isMouseOver(mouseX, mouseY)) {
             showTooltip(
-                I18n.format(
+                I18n.get(
                     importantOnly ? "lagfinder.tip.important_on" : "lagfinder.tip.important_off",
                     importantLimit()),
                 mouseX,
@@ -899,11 +899,15 @@ public class GuiReport extends ScaledScreen {
     }
 
     private static boolean overlapping(Category category) {
-        return category == Category.WORLDS || category == Category.PIPE_NETWORKS;
+        return category == Category.WORLDS || category == Category.PIPE_NETWORKS
+            || category == Category.OC_THREAD
+            || category == Category.OC_SYNC;
     }
 
     private static int rank(Category category) {
-        return category == Category.PIPE_NETWORKS ? 1 : category == Category.WORLDS ? 2 : 0;
+        return category == Category.PIPE_NETWORKS ? 1
+            : category == Category.OC_THREAD ? 2
+                : category == Category.OC_SYNC ? 3 : category == Category.WORLDS ? 4 : 0;
     }
 
     private static int categoryColor(Category category) {
@@ -940,6 +944,10 @@ public class GuiReport extends ScaledScreen {
                 return 0xFF2EC4B6;
             case PIPE_NETWORKS:
                 return 0xFFF29E4C;
+            case OC_THREAD:
+                return 0xFF7ED957;
+            case OC_SYNC:
+                return 0xFF4FB3A8;
             default:
                 return TOTAL_COLOR;
         }
@@ -996,14 +1004,14 @@ public class GuiReport extends ScaledScreen {
         fontRendererObj.drawString(
             Theme.ellipsize(
                 fontRendererObj,
-                I18n.format("lagfinder.report.where")
+                I18n.get("lagfinder.report.where")
                     .toUpperCase(),
                 x1 - x0 - 28),
             x0 + 19,
             y0 + 7,
             Theme.TEXT);
         fontRendererObj.drawString(
-            Theme.ellipsize(fontRendererObj, I18n.format("lagfinder.report.where_hint"), x1 - x0 - 16),
+            Theme.ellipsize(fontRendererObj, I18n.get("lagfinder.report.where_hint"), x1 - x0 - 16),
             x0 + 8,
             y0 + 18,
             Theme.TEXT_DISABLED);
@@ -1065,10 +1073,10 @@ public class GuiReport extends ScaledScreen {
             x1,
             y + sideRow - 2,
             () -> switchTab(index),
-            I18n.format("lagfinder.category." + category.category.id) + "\n"
-                + I18n.format("lagfinder.report.side_tip", avgText(perPeriod), percent(limitShare), share)
+            I18n.get("lagfinder.category." + category.category.id) + "\n"
+                + I18n.get("lagfinder.report.side_tip", avgText(perPeriod), percent(limitShare), share)
                 + "\n"
-                + I18n.format("lagfinder.tip.category." + category.category.id));
+                + I18n.get("lagfinder.tip.category." + category.category.id));
     }
 
     private boolean lagging() {
@@ -1095,28 +1103,28 @@ public class GuiReport extends ScaledScreen {
 
     private String fineText() {
         if (!fps()) {
-            return I18n.format("lagfinder.report.fine", percent(report.averagePeriodMs() / report.mode.budgetMs()));
+            return I18n.get("lagfinder.report.fine", percent(report.averagePeriodMs() / report.mode.budgetMs()));
         }
         double frameMs = report.wallPeriodMs();
         double workMs = Math.max(0, frameMs - report.averageWaitMs());
         if (report.heldToLimit() && frameMs > 0) {
-            return I18n.format(
+            return I18n.get(
                 "lagfinder.report.fine_capped",
                 String.format("%.0f", report.averageRate()),
                 String.format("%.0f", report.unlimitedRate()),
                 percent(1 - workMs / frameMs));
         }
-        return I18n.format("lagfinder.report.fine_fps", String.format("%.0f", report.averageRate()));
+        return I18n.get("lagfinder.report.fine_fps", String.format("%.0f", report.averageRate()));
     }
 
     private String statusText(float rate) {
         if (fps()) {
-            return I18n.format(
+            return I18n.get(
                 rate >= 55 ? "lagfinder.report.status_fps_ok"
                     : rate >= 30 ? "lagfinder.report.status_fps_mid" : "lagfinder.report.status_fps_bad");
         }
         float ratio = rate / report.mode.targetRate();
-        return I18n.format(
+        return I18n.get(
             ratio >= 0.95f ? "lagfinder.report.status_ok"
                 : ratio >= 0.75f ? "lagfinder.report.status_minor"
                     : ratio >= 0.5f ? "lagfinder.report.status_lag" : "lagfinder.report.status_bad");
@@ -1136,31 +1144,31 @@ public class GuiReport extends ScaledScreen {
         List<String> values = new ArrayList<>();
         List<Integer> colors = new ArrayList<>();
         if (tps) {
-            labels.add(I18n.format("lagfinder.tile.min_tps"));
+            labels.add(I18n.get("lagfinder.tile.min_tps"));
             values.add(String.format("%.1f", minimum));
             colors.add(Draw.rateColor(minimum, target));
-            labels.add(I18n.format("lagfinder.tile.worst_tick"));
+            labels.add(I18n.get("lagfinder.tile.worst_tick"));
             values.add(Names.ms(worstMs));
             colors.add(worstMs > budget * 4 ? Theme.DANGER : worstMs > budget ? WARN : Theme.SUCCESS);
         } else {
             float worstFps = worstMs > 0 ? 1000f / worstMs : 0;
             if (report.rateBefore > 0) {
-                labels.add(I18n.format("lagfinder.tile.fps_before"));
+                labels.add(I18n.get("lagfinder.tile.fps_before"));
                 values.add(String.format("%.1f", report.rateBefore));
                 colors.add(fpsColor(report.rateBefore));
             }
-            labels.add(I18n.format("lagfinder.tile.min_fps"));
+            labels.add(I18n.get("lagfinder.tile.min_fps"));
             values.add(String.format("%.1f", minimum));
             colors.add(fpsColor(minimum));
-            labels.add(I18n.format("lagfinder.tile.worst_frame_fps"));
+            labels.add(I18n.get("lagfinder.tile.worst_frame_fps"));
             values.add(Names.fps(worstFps));
             colors.add(fpsColor(worstFps));
             double waitMs = report.averageWaitMs();
             if (waitMs > 0.05) {
                 double frameMs = report.wallPeriodMs();
                 labels.add(
-                    report.frameCap > 0 ? I18n.format("lagfinder.tile.frame_work_cap", Math.round(report.frameCap))
-                        : I18n.format("lagfinder.tile.frame_work"));
+                    report.frameCap > 0 ? I18n.get("lagfinder.tile.frame_work_cap", Math.round(report.frameCap))
+                        : I18n.get("lagfinder.tile.frame_work"));
                 values.add(String.format("%.1f / %.1f ms", Math.max(0, frameMs - waitMs), frameMs));
                 colors.add(waitMs > frameMs * 0.25 ? Theme.SUCCESS : WARN);
             }
@@ -1168,12 +1176,12 @@ public class GuiReport extends ScaledScreen {
 
         if (report.gcTotalCount() > 0) {
             float gcMs = report.gcTotalMs();
-            labels.add(I18n.format("lagfinder.tile.gc"));
+            labels.add(I18n.get("lagfinder.tile.gc"));
             values.add(report.gcTotalCount() + " \u00b7 " + Names.ms(gcMs));
             colors.add(gcMs > report.durationSec * 1000f * 0.02f ? WARN : Theme.TEXT_MUTED);
         }
         if (!tps && report.heldToLimit() && report.unlimitedRate() > 0) {
-            labels.add(0, I18n.format("lagfinder.tile.unlimited"));
+            labels.add(0, I18n.get("lagfinder.tile.unlimited"));
             values.add(0, "\u2248" + String.format("%.0f", report.unlimitedRate()) + " FPS");
             colors.add(0, Theme.ACCENT);
         }
@@ -1198,11 +1206,11 @@ public class GuiReport extends ScaledScreen {
         int total = rateWidth + gap + barWidth + gap + chipsWidth;
         int x = x0 + Math.max(10, (x1 - x0 - total) / 2);
 
-        GL11.glPushMatrix();
-        GL11.glTranslatef(x, y0 + 7, 0);
-        GL11.glScalef(2f, 2f, 1f);
+        Gfx.pose().pushPose();
+        Gfx.pose().translate(x, y0 + 7, 0);
+        Gfx.pose().scale(2f, 2f, 1f);
         fontRendererObj.drawStringWithShadow(big, 0, 0, rateColor);
-        GL11.glPopMatrix();
+        Gfx.pose().popPose();
         fontRendererObj.drawString(unit, x + bigWidth + 6, y0 + 7, Theme.TEXT_MUTED);
         fontRendererObj.drawString(status, x + bigWidth + 6, y0 + 17, rateColor);
         hit(
@@ -1211,8 +1219,8 @@ public class GuiReport extends ScaledScreen {
             x + rateWidth,
             y0 + 30,
             null,
-            I18n.format(tps ? "lagfinder.tile.avg_tps" : "lagfinder.tile.avg_fps") + "\n"
-                + I18n.format("lagfinder.report.rate_tip"));
+            I18n.get(tps ? "lagfinder.tile.avg_tps" : "lagfinder.tile.avg_fps") + "\n"
+                + I18n.get("lagfinder.report.rate_tip"));
         x += rateWidth + gap;
 
         drawBudgetBar(x, y0 + 6, x + barWidth, averageMs, mouseX, mouseY);
@@ -1241,7 +1249,7 @@ public class GuiReport extends ScaledScreen {
     private void drawBudgetBar(int x0, int y0, int x1, float averageMs, int mouseX, int mouseY) {
         boolean tps = report.mode == ScanMode.TPS;
         float limit = tps || report.frameCap <= 0 ? report.mode.budgetMs() : 1000f / report.frameCap;
-        String label = I18n.format(
+        String label = I18n.get(
             tps ? "lagfinder.report.tick_bar" : "lagfinder.report.frame_bar",
             Names.ms(averageMs),
             percent(averageMs / limit));
@@ -1289,7 +1297,7 @@ public class GuiReport extends ScaledScreen {
                 barY1 + 2,
                 () -> switchTab(index),
                 Names.category(part.category, report.mode) + "\n"
-                    + I18n.format(
+                    + I18n.get(
                         "lagfinder.report.side_tip",
                         avgText(report.perPeriod(part)),
                         percent(report.perPeriod(part) / limit),
@@ -1306,7 +1314,7 @@ public class GuiReport extends ScaledScreen {
                     to,
                     barY1 + 2,
                     null,
-                    I18n.format("lagfinder.report.other") + "\n" + I18n.format("lagfinder.report.other_tip"));
+                    I18n.get("lagfinder.report.other") + "\n" + I18n.get("lagfinder.report.other_tip"));
             }
         }
         int limitX = x0 + (int) Math.round(width * limit / scale);
@@ -1317,7 +1325,7 @@ public class GuiReport extends ScaledScreen {
             }
         }
         Theme.fill(limitX, barY0 - 3, limitX + 1, barY1 + 3, Theme.TEXT);
-        String limitText = I18n.format("lagfinder.report.limit", Names.ms(limit));
+        String limitText = I18n.get("lagfinder.report.limit", Names.ms(limit));
         int limitWidth = fontRendererObj.getStringWidth(limitText);
         int textX = Math.max(x0, Math.min(x1 - limitWidth, limitX - limitWidth / 2));
         fontRendererObj.drawString(limitText, textX, barY1 + 3, Theme.TEXT_DISABLED);
@@ -1333,7 +1341,7 @@ public class GuiReport extends ScaledScreen {
             String text;
             int color;
             if (lagging) {
-                text = I18n.format("lagfinder.report.spread");
+                text = I18n.get("lagfinder.report.spread");
                 color = WARN;
             } else {
                 text = fineText();
@@ -1351,13 +1359,13 @@ public class GuiReport extends ScaledScreen {
             return;
         }
         int color = Theme.DANGER;
-        String label = I18n.format(fps() ? "lagfinder.report.cause_fps" : "lagfinder.report.cause");
+        String label = I18n.get(fps() ? "lagfinder.report.cause_fps" : "lagfinder.report.cause");
         String name = Names.of(entry);
         String where = entry.level == 3 ? Names.position(entry)
-            : entry.category.hasInstances ? I18n.format("lagfinder.suspect.kind", instancesOf(entry))
+            : entry.category.hasInstances ? I18n.get("lagfinder.suspect.kind", instancesOf(entry))
                 : Names.category(entry.category);
-        String numbers = avgText(average) + "  ·  " + I18n.format("lagfinder.report.of_tick", percent(share));
-        String show = I18n.format("lagfinder.report.show") + " →";
+        String numbers = avgText(average) + "  ·  " + I18n.get("lagfinder.report.of_tick", percent(share));
+        String show = I18n.get("lagfinder.report.show") + " →";
         int fixed = fontRendererObj.getStringWidth(label) + 6
             + 16
             + fontRendererObj.getStringWidth(numbers)
@@ -1399,9 +1407,9 @@ public class GuiReport extends ScaledScreen {
                 + "  ·  "
                 + Names.category(entry.category)
                 + "\n"
-                + I18n.format("lagfinder.tip.suspect_cause", String.format("%.0f%%", share * 100))
+                + I18n.get("lagfinder.tip.suspect_cause", String.format("%.0f%%", share * 100))
                 + "\n"
-                + I18n.format("lagfinder.tip.reveal"));
+                + I18n.get("lagfinder.tip.reveal"));
     }
 
     private static int fpsColor(float fps) {
@@ -1438,6 +1446,10 @@ public class GuiReport extends ScaledScreen {
                 return Icons.SMALL_TASKS;
             case PIPE_NETWORKS:
                 return Icons.SMALL_PIPE;
+            case OC_THREAD:
+                return Icons.SMALL_MEMORY;
+            case OC_SYNC:
+                return Icons.SMALL_LINK;
             default:
                 return Icons.SMALL_GRID;
         }
@@ -1449,10 +1461,10 @@ public class GuiReport extends ScaledScreen {
         ReportEntry category = category();
         // Column titles.
         int headY = bodyTop + 21;
-        fontRendererObj.drawString(I18n.format("lagfinder.column.name"), listLeft + 4, headY, Theme.TEXT_DISABLED);
-        String avg = I18n.format(costKey("lagfinder.column.avg_tick", "lagfinder.column.avg_frame"));
-        String peak = I18n.format(inFps() ? "lagfinder.column.peak_fps" : "lagfinder.column.peak");
-        String shareTitle = I18n.format(fps() ? "lagfinder.column.share_frame" : "lagfinder.column.share");
+        fontRendererObj.drawString(I18n.get("lagfinder.column.name"), listLeft + 4, headY, Theme.TEXT_DISABLED);
+        String avg = I18n.get(costKey("lagfinder.column.avg_tick", "lagfinder.column.avg_frame"));
+        String peak = I18n.get(inFps() ? "lagfinder.column.peak_fps" : "lagfinder.column.peak");
+        String shareTitle = I18n.get(fps() ? "lagfinder.column.share_frame" : "lagfinder.column.share");
         int shareLeft = listRight - PEAK_COLUMN - AVG_COLUMN - 2 - SHARE_COLUMN + 4;
         fontRendererObj.drawString(shareTitle, shareLeft, headY, Theme.TEXT_DISABLED);
         hit(
@@ -1461,7 +1473,7 @@ public class GuiReport extends ScaledScreen {
             shareLeft + fontRendererObj.getStringWidth(shareTitle) + 2,
             headY + 10,
             null,
-            I18n.format(fps() ? "lagfinder.tip.share_column_frame" : "lagfinder.tip.share_column"));
+            I18n.get(fps() ? "lagfinder.tip.share_column_frame" : "lagfinder.tip.share_column"));
         fontRendererObj.drawString(
             avg,
             listRight - PEAK_COLUMN - 6 - fontRendererObj.getStringWidth(avg),
@@ -1478,14 +1490,14 @@ public class GuiReport extends ScaledScreen {
             listRight - PEAK_COLUMN,
             headY + 10,
             null,
-            I18n.format(costKey("lagfinder.tip.avg", "lagfinder.tip.avg_fps")));
+            I18n.get(costKey("lagfinder.tip.avg", "lagfinder.tip.avg_fps")));
         hit(
             listRight - PEAK_COLUMN,
             headY - 2,
             listRight,
             headY + 10,
             null,
-            I18n.format(costKey("lagfinder.tip.peak", "lagfinder.tip.peak_fps")));
+            I18n.get(costKey("lagfinder.tip.peak", "lagfinder.tip.peak_fps")));
 
         Theme.card(listLeft, listTop - 1, listRight, bodyBottom);
         if (category == null || rows.isEmpty()) {
@@ -1493,7 +1505,7 @@ public class GuiReport extends ScaledScreen {
             if (unhooked != null && lastSearch.isEmpty() && report.warnings.contains(unhooked)) {
                 // Not "nothing here": it couldn't be measured.
                 List<?> lines = fontRendererObj
-                    .listFormattedStringToWidth(I18n.format(unhooked), listRight - listLeft - 24);
+                    .listFormattedStringToWidth(I18n.get(unhooked), listRight - listLeft - 24);
                 for (int i = 0; i < lines.size(); i++) {
                     Theme.centered(
                         fontRendererObj,
@@ -1508,14 +1520,14 @@ public class GuiReport extends ScaledScreen {
                 int center = (listLeft + listRight) / 2;
                 Theme.centered(
                     fontRendererObj,
-                    I18n.format("lagfinder.gui.all_small", importantLimit()),
+                    I18n.get("lagfinder.gui.all_small", importantLimit()),
                     center,
                     listTop + 20,
                     Theme.TEXT_MUTED);
                 drawShowAll(center, listTop + 34, mouseX, mouseY, true);
                 return;
             }
-            String empty = I18n.format(lastSearch.isEmpty() ? "lagfinder.gui.nothing" : "lagfinder.gui.nothing_found");
+            String empty = I18n.get(lastSearch.isEmpty() ? "lagfinder.gui.nothing" : "lagfinder.gui.nothing_found");
             Theme.centered(fontRendererObj, empty, (listLeft + listRight) / 2, listTop + 20, Theme.TEXT_DISABLED);
             return;
         }
@@ -1553,15 +1565,15 @@ public class GuiReport extends ScaledScreen {
     }
 
     private void drawShowAll(int centerX, int y, int mouseX, int mouseY, boolean alone) {
-        String showAll = I18n.format("lagfinder.gui.show_all");
-        String hidden = I18n.format("lagfinder.gui.hidden_small", hiddenRows, importantLimit());
+        String showAll = I18n.get("lagfinder.gui.show_all");
+        String hidden = I18n.get("lagfinder.gui.hidden_small", hiddenRows, importantLimit());
         String text = alone ? showAll : hidden + "  \u00b7  " + showAll;
         int w = fontRendererObj.getStringWidth(text);
         int x0 = centerX - w / 2;
         boolean over = Theme.inside(mouseX, mouseY, x0 - 4, y - 3, x0 + w + 4, y + 11)
             && Theme.inside(mouseX, mouseY, listLeft, listTop, listRight, bodyBottom);
         fontRendererObj.drawString(text, x0, y, over ? Theme.TEXT : Theme.ACCENT);
-        String tip = I18n.format("lagfinder.tip.important_on", importantLimit());
+        String tip = I18n.get("lagfinder.tip.important_on", importantLimit());
         hit(x0 - 4, y - 3, x0 + w + 4, y + 11, this::showAll, tip);
     }
 
@@ -1719,7 +1731,7 @@ public class GuiReport extends ScaledScreen {
                 bx + size,
                 by + size,
                 () -> openCards(entry),
-                I18n.format("lagfinder.action.cards") + "\n" + I18n.format("lagfinder.tip.cards"));
+                I18n.get("lagfinder.action.cards") + "\n" + I18n.get("lagfinder.tip.cards"));
             textRight = bx - 4;
         }
 
@@ -1759,7 +1771,7 @@ public class GuiReport extends ScaledScreen {
 
     /** The dimension of an instance when it isn't the player's, e.g. "[Nether]"; null otherwise. */
     private String dimensionTag(ReportEntry entry) {
-        int playerDim = mc.theWorld != null ? mc.theWorld.provider.dimensionId : 0;
+        int playerDim = mc.level != null ? lagfinder.Dims.id(mc.level) : 0;
         if (!entry.hasLocation() || entry.dim == playerDim) {
             return null;
         }
@@ -1797,7 +1809,7 @@ public class GuiReport extends ScaledScreen {
             right,
             y0 + h,
             () -> openCards(entry),
-            I18n.format("lagfinder.action.cards_count", number) + "\n" + I18n.format("lagfinder.tip.cards"));
+            I18n.get("lagfinder.action.cards_count", number) + "\n" + I18n.get("lagfinder.tip.cards"));
         return x0;
     }
 
@@ -1808,14 +1820,14 @@ public class GuiReport extends ScaledScreen {
         String query = lastSearch.trim()
             .toLowerCase(Locale.ROOT);
         boolean forThings = !query.isEmpty() && !matches(entry, query) && anyMatches(entry.children, query);
-        mc.displayGuiScreen(new GuiInstances(report, entry, this).withSearch(forThings ? lastSearch : null));
+        mc.setScreen(new GuiInstances(report, entry, this).withSearch(forThings ? lastSearch : null));
     }
 
     private void teleport(ReportEntry entry) {
         if (!entry.hasLocation() || !ClientScanner.INSTANCE.teleportAllowed()) {
             return;
         }
-        Net.sendToServer(Net.Teleport.to(entry));
+        lagfinder.client.ClientScanner.INSTANCE.sendToServer(Net.Teleport.to(entry));
         if (!Highlighter.INSTANCE.isHighlighted(entry)) {
             Highlighter.INSTANCE.toggle(report, entry);
         }
@@ -1843,7 +1855,7 @@ public class GuiReport extends ScaledScreen {
 
         // Legend: a sample of each thing drawn, as it looks on the graph.
         String elementName = selected == null
-            ? I18n.format(tps ? "lagfinder.graph.tick_time" : "lagfinder.graph.frame_drops")
+            ? I18n.get(tps ? "lagfinder.graph.tick_time" : "lagfinder.graph.frame_drops")
             : Names.of(selected) + (selected.level == 3 ? " (" + Names.position(selected) + ")" : "");
         Chart.Legend legend = new Chart.Legend(fontRendererObj, x0 + 8, y0 + 6, x1 - 8);
         legend.line(rateName, Theme.SUCCESS, true);
@@ -1853,11 +1865,11 @@ public class GuiReport extends ScaledScreen {
                 legend.bar(Names.category(part.category, report.mode), categoryColor(part.category), false);
             }
             if (stack.size() > 4) {
-                legend.bar(I18n.format("lagfinder.report.other"), OTHER_COLOR, false);
+                legend.bar(I18n.get("lagfinder.report.other"), OTHER_COLOR, false);
             }
-            legend.band(I18n.format(costKey("lagfinder.graph.legend_peak", null)), TOTAL_COLOR, false);
+            legend.band(I18n.get(costKey("lagfinder.graph.legend_peak", null)), TOTAL_COLOR, false);
             if (tps) {
-                legend.mark(I18n.format("lagfinder.graph.lag_zone"), 0xFFE5534B);
+                legend.mark(I18n.get("lagfinder.graph.lag_zone"), 0xFFE5534B);
             }
             if (report.gcTotalCount() > 0) {
                 legend.mark("GC", GC_COLOR);
@@ -1865,9 +1877,8 @@ public class GuiReport extends ScaledScreen {
         } else if (selected == null && !inMs) {
             legend.band(elementName, elementColor, false);
         } else {
-            String avgName = I18n
-                .format(costKey("lagfinder.graph.legend_avg", "lagfinder.graph.legend_avg_fps"), elementName);
-            String peakName = I18n.format(costKey("lagfinder.graph.legend_peak", "lagfinder.graph.legend_peak_fps"));
+            String avgName = I18n.get(costKey("lagfinder.graph.legend_avg", "lagfinder.graph.legend_avg_fps"), elementName);
+            String peakName = I18n.get(costKey("lagfinder.graph.legend_peak", "lagfinder.graph.legend_peak_fps"));
             legend.keep(fontRendererObj.getStringWidth(peakName) + 21);
             legend.bar(avgName, elementColor, false);
             legend.band(peakName, elementColor, false);
@@ -1954,12 +1965,12 @@ public class GuiReport extends ScaledScreen {
             if (inMs) {
                 String limit = Names.ms(budget)
                     .replace(" ", "");
-                chart.threshold(budget, msMax, Theme.DANGER, I18n.format("lagfinder.graph.budget", limit));
+                chart.threshold(budget, msMax, Theme.DANGER, I18n.get("lagfinder.graph.budget", limit));
             }
         } else {
             Theme.centered(
                 fontRendererObj,
-                I18n.format("lagfinder.graph.no_graph"),
+                I18n.get("lagfinder.graph.no_graph"),
                 (chart.x0 + chart.x1) / 2,
                 chart.y0 + 10,
                 Theme.TEXT_DISABLED);
@@ -1998,10 +2009,10 @@ public class GuiReport extends ScaledScreen {
                 cx + 6,
                 chart.y0,
                 () -> pin(moment),
-                I18n.format(
+                I18n.get(
                     "lagfinder.graph.worst",
                     String.format("%s %.1f", rateName, report.rate[moment]),
-                    Names.clock(moment * report.bucketSec)) + "\n" + I18n.format("lagfinder.tip.pin"));
+                    Names.clock(moment * report.bucketSec)) + "\n" + I18n.get("lagfinder.tip.pin"));
         }
 
         // What was at the moment under the mouse: marked on the lines with its values beside the axes; a click picks
@@ -2029,11 +2040,11 @@ public class GuiReport extends ScaledScreen {
             lines.add(String.format("%s %.1f", rateName, report.rate[i]));
             lineColors.add(rateColor);
             if (tps) {
-                lines.add(I18n.format("lagfinder.graph.tick", Names.ms(report.avgMs[i]), Names.ms(report.maxMs[i])));
+                lines.add(I18n.get("lagfinder.graph.tick", Names.ms(report.avgMs[i]), Names.ms(report.maxMs[i])));
                 lineColors.add(Theme.TEXT);
             } else {
                 float worstFps = report.maxMs[i] > 0 ? 1000f / report.maxMs[i] : 0;
-                lines.add(I18n.format("lagfinder.graph.frame_fps", Names.fps(worstFps)));
+                lines.add(I18n.get("lagfinder.graph.frame_fps", Names.fps(worstFps)));
                 lineColors.add(fpsColor(worstFps));
             }
             if (stacked) {
@@ -2053,15 +2064,15 @@ public class GuiReport extends ScaledScreen {
                 lines.add(Names.of(shown) + ":");
                 lineColors.add(elementColor);
                 lines.add(
-                    "  " + (tps ? I18n.format("lagfinder.graph.element", Names.ms(avg[i]), Names.ms(peak[i]))
-                        : I18n.format("lagfinder.graph.element_fps", Names.fpsLoss(avg[i]), Names.fpsLoss(peak[i]))));
+                    "  " + (tps ? I18n.get("lagfinder.graph.element", Names.ms(avg[i]), Names.ms(peak[i]))
+                        : I18n.get("lagfinder.graph.element_fps", Names.fpsLoss(avg[i]), Names.fpsLoss(peak[i]))));
                 lineColors.add(Theme.TEXT);
             }
             if (report.gcCount != null && i < report.gcCount.length && report.gcCount[i] > 0) {
-                lines.add(I18n.format("lagfinder.graph.gc", report.gcCount[i], Names.ms(report.gcMs[i])));
+                lines.add(I18n.get("lagfinder.graph.gc", report.gcCount[i], Names.ms(report.gcMs[i])));
                 lineColors.add(GC_COLOR);
             }
-            lines.add(I18n.format(i == pinned ? "lagfinder.graph.click_unpin" : "lagfinder.graph.click_pin"));
+            lines.add(I18n.get(i == pinned ? "lagfinder.graph.click_unpin" : "lagfinder.graph.click_pin"));
             lineColors.add(Theme.TEXT_DISABLED);
             Draw.tooltip(fontRendererObj, lines, lineColors, mouseX, mouseY, width, height);
         }
@@ -2139,13 +2150,13 @@ public class GuiReport extends ScaledScreen {
     private void drawOverview(int x0, int y0, int x1, int y1, int mouseX, int mouseY) {
         int[] at = listsLayout(x0, y0 + 8, x1, y1);
         drawTopList(
-            I18n.format("lagfinder.overview.most_time"),
+            I18n.get("lagfinder.overview.most_time"),
             Icons.SMALL_CLOCK,
             Theme.ACCENT,
             byAverage,
             entry -> avgText(report.perPeriod(entry)),
             entry -> severity(report.perPeriod(entry)),
-            I18n.format("lagfinder.overview.none_time"),
+            I18n.get("lagfinder.overview.none_time"),
             at[0],
             y0 + 8,
             at[1],
@@ -2153,13 +2164,13 @@ public class GuiReport extends ScaledScreen {
             mouseX,
             mouseY);
         drawTopList(
-            I18n.format("lagfinder.overview.spikes"),
+            I18n.get("lagfinder.overview.spikes"),
             Icons.SMALL_SPIKE,
             ORANGE,
             bySpike,
             this::peakText,
             this::peakColor,
-            I18n.format("lagfinder.overview.none"),
+            I18n.get("lagfinder.overview.none"),
             at[2],
             at[4],
             at[3],
@@ -2184,7 +2195,7 @@ public class GuiReport extends ScaledScreen {
         int i = pinned;
         float from = i * report.bucketSec, to = Math.min(report.durationSec, (i + 1) * report.bucketSec);
         // Which moment it is and how it went, with a button back to the whole scan.
-        String back = I18n.format("lagfinder.moment.back");
+        String back = I18n.get("lagfinder.moment.back");
         int backWidth = fontRendererObj.getStringWidth(back) + 22;
         int bx = x1 - 8 - backWidth, by = y0 + 5;
         boolean overBack = Theme.inside(mouseX, mouseY, bx, by, bx + backWidth, by + 14);
@@ -2199,7 +2210,7 @@ public class GuiReport extends ScaledScreen {
         Theme.outline(bx, by, bx + backWidth, by + 14, Theme.blend(Theme.BORDER, Theme.ACCENT, backLit));
         Icons.draw(Icons.SMALL_CLEAR, bx + 5, by + 4, overBack ? Theme.TEXT : Theme.TEXT_MUTED);
         fontRendererObj.drawString(back, bx + 16, by + 3, overBack ? Theme.TEXT : Theme.TEXT_MUTED);
-        hit(bx, by, bx + backWidth, by + 14, () -> pin(i), I18n.format("lagfinder.tip.unpin"));
+        hit(bx, by, bx + backWidth, by + 14, () -> pin(i), I18n.get("lagfinder.tip.unpin"));
 
         Theme.fill(x0 + 8, y0 + 7, x0 + 10, y0 + 17, Theme.ACCENT);
         String moment = Names.clock(from) + " – " + Names.clock(to);
@@ -2208,8 +2219,8 @@ public class GuiReport extends ScaledScreen {
         String rate = String.format("%s %.1f", tps ? "TPS" : "FPS", report.rate[i]);
         fontRendererObj.drawString(rate, after, y0 + 8, Draw.rateColor(report.rate[i], tps ? 20f : 60f));
         after += fontRendererObj.getStringWidth(rate) + 8;
-        String tick = tps ? I18n.format("lagfinder.graph.tick", Names.ms(report.avgMs[i]), Names.ms(report.maxMs[i]))
-            : I18n.format("lagfinder.graph.frame_fps", Names.fps(report.maxMs[i] > 0 ? 1000f / report.maxMs[i] : 0));
+        String tick = tps ? I18n.get("lagfinder.graph.tick", Names.ms(report.avgMs[i]), Names.ms(report.maxMs[i]))
+            : I18n.get("lagfinder.graph.frame_fps", Names.fps(report.maxMs[i] > 0 ? 1000f / report.maxMs[i] : 0));
         fontRendererObj
             .drawString(Theme.ellipsize(fontRendererObj, tick, bx - 8 - after), after, y0 + 8, Theme.TEXT_MUTED);
 
@@ -2217,13 +2228,13 @@ public class GuiReport extends ScaledScreen {
         Theme.fill(x0 + 6, top - 4, x1 - 6, top - 3, 0xFF1C2129);
         int[] at = listsLayout(x0, top, x1, y1);
         drawTopList(
-            I18n.format("lagfinder.moment.most_time"),
+            I18n.get("lagfinder.moment.most_time"),
             Icons.SMALL_CLOCK,
             Theme.ACCENT,
             pinnedByAverage,
             entry -> momentAvgText(entry, i),
             entry -> severity(report.perPeriod(entry, i)),
-            I18n.format("lagfinder.moment.none"),
+            I18n.get("lagfinder.moment.none"),
             at[0],
             top,
             at[1],
@@ -2231,13 +2242,13 @@ public class GuiReport extends ScaledScreen {
             mouseX,
             mouseY);
         drawTopList(
-            I18n.format(tps ? "lagfinder.moment.spikes" : "lagfinder.moment.spikes_fps"),
+            I18n.get(tps ? "lagfinder.moment.spikes" : "lagfinder.moment.spikes_fps"),
             Icons.SMALL_SPIKE,
             ORANGE,
             pinnedBySpike,
             entry -> momentPeakText(entry, i),
             entry -> momentPeakColor(entry, i),
-            I18n.format("lagfinder.overview.none"),
+            I18n.get("lagfinder.overview.none"),
             at[2],
             at[4],
             at[3],
@@ -2341,7 +2352,7 @@ public class GuiReport extends ScaledScreen {
                     + "  ·  "
                     + Names.category(entry.category)
                     + "\n"
-                    + I18n.format("lagfinder.tip.reveal"));
+                    + I18n.get("lagfinder.tip.reveal"));
         }
     }
 
@@ -2369,7 +2380,7 @@ public class GuiReport extends ScaledScreen {
             closeX + 12,
             y + 10,
             () -> selected = null,
-            I18n.format(pinned >= 0 ? "lagfinder.tip.back_moment" : "lagfinder.tip.back_overview"));
+            I18n.get(pinned >= 0 ? "lagfinder.tip.back_moment" : "lagfinder.tip.back_overview"));
         String mod = modOf(entry);
         int modWidth = fontRendererObj.getStringWidth(mod) + 10;
         int titleRight = closeX - 4;
@@ -2399,13 +2410,19 @@ public class GuiReport extends ScaledScreen {
         boolean tps = report.mode == ScanMode.TPS;
         double average = report.perPeriod(entry);
         double share = report.averagePeriodMs() <= 0 ? 0 : average / report.averagePeriodMs() * 100;
+        boolean computers = entry.category == Category.OC_THREAD && report.computerThreads > 0;
+        if (computers) {
+            share = average / (report.computerThreads * report.mode.budgetMs()) * 100;
+        }
         int periods = Math.max(1, report.periods);
-        String[] labels = { I18n.format(costKey("lagfinder.stat.avg_tick", "lagfinder.stat.avg_frame")),
-            I18n.format(tps ? "lagfinder.stat.share_tick" : "lagfinder.stat.share_frame"),
-            I18n.format(costKey("lagfinder.stat.peak", "lagfinder.stat.peak_fps")),
-            I18n.format("lagfinder.stat.spikes"),
-            I18n.format(tps ? "lagfinder.stat.calls_tick" : "lagfinder.stat.calls_frame"),
-            entry.level == 3 ? I18n.format("lagfinder.stat.active") : I18n.format("lagfinder.stat.instances") };
+        String[] labels = { I18n.get(costKey("lagfinder.stat.avg_tick", "lagfinder.stat.avg_frame")),
+            I18n.get(
+                computers ? "lagfinder.stat.oc_load" : tps ? "lagfinder.stat.share_tick" : "lagfinder.stat.share_frame",
+                report.computerThreads),
+            I18n.get(costKey("lagfinder.stat.peak", "lagfinder.stat.peak_fps")),
+            I18n.get("lagfinder.stat.spikes"),
+            I18n.get(tps ? "lagfinder.stat.calls_tick" : "lagfinder.stat.calls_frame"),
+            entry.level == 3 ? I18n.get("lagfinder.stat.active") : I18n.get("lagfinder.stat.instances") };
         String[] values = { avgText(average), String.format("%.1f%%", share),
             peakText(entry) + "  @" + Names.clock(entry.maxAt),
             entry.spikes + String.format("  (%.1f%%)", entry.spikes * 100.0 / periods),
@@ -2415,7 +2432,8 @@ public class GuiReport extends ScaledScreen {
                     : entry.level == 1 ? String.valueOf(entry.children.size()) : "\u2014" };
         int[] colors = { severity(average), severity(average), peakColor(entry), entry.spikes > 0 ? ORANGE : Theme.TEXT,
             Theme.TEXT, Theme.TEXT };
-        String[] tips = { costKey("lagfinder.tip.avg", "lagfinder.tip.avg_fps"), "lagfinder.tip.share",
+        String[] tips = { costKey("lagfinder.tip.avg", "lagfinder.tip.avg_fps"),
+            computers ? "lagfinder.tip.oc_load" : "lagfinder.tip.share",
             costKey("lagfinder.tip.peak", "lagfinder.tip.peak_fps"), "lagfinder.tip.spikes", "lagfinder.tip.calls",
             entry.level == 3 ? "lagfinder.tip.active" : "lagfinder.tip.instances" };
         int columns = 3, gap = 6;
@@ -2441,7 +2459,7 @@ public class GuiReport extends ScaledScreen {
                 Theme.TEXT_DISABLED);
             fontRendererObj
                 .drawString(Theme.ellipsize(fontRendererObj, values[i], tileWidth - 10), tx + 5, ty + 15, colors[i]);
-            hit(tx, ty, tx + tileWidth, ty + tileHeight, null, labels[i] + "\n" + I18n.format(tips[i]));
+            hit(tx, ty, tx + tileWidth, ty + tileHeight, null, labels[i] + "\n" + I18n.get(tips[i]));
         }
         y += 2 * (tileHeight + 4) + 4;
         if (y > y1 - 16) {
@@ -2454,7 +2472,7 @@ public class GuiReport extends ScaledScreen {
             if (isSpiky(entry) && y + 12 < y1) {
                 Icons.draw(Icons.SMALL_SPIKE, x0 + 8, y + 1, ORANGE);
                 fontRendererObj.drawString(
-                    Theme.ellipsize(fontRendererObj, I18n.format("lagfinder.hint.spiky"), x1 - x0 - 30),
+                    Theme.ellipsize(fontRendererObj, I18n.get("lagfinder.hint.spiky"), x1 - x0 - 30),
                     x0 + 19,
                     y,
                     ORANGE);
@@ -2464,7 +2482,7 @@ public class GuiReport extends ScaledScreen {
         if (isSpiky(entry) && y + 12 < y1) {
             Icons.draw(Icons.SMALL_SPIKE, x0 + 8, y + 1, ORANGE);
             fontRendererObj.drawString(
-                Theme.ellipsize(fontRendererObj, I18n.format("lagfinder.hint.spiky"), x1 - x0 - 30),
+                Theme.ellipsize(fontRendererObj, I18n.get("lagfinder.hint.spiky"), x1 - x0 - 30),
                 x0 + 19,
                 y,
                 ORANGE);
@@ -2477,7 +2495,7 @@ public class GuiReport extends ScaledScreen {
         // The worst ones under it.
         if (!entry.children.isEmpty() && y + 26 < y1) {
             fontRendererObj.drawString(
-                I18n.format("lagfinder.details.worst")
+                I18n.get("lagfinder.details.worst")
                     .toUpperCase(),
                 x0 + 8,
                 y,
@@ -2509,7 +2527,7 @@ public class GuiReport extends ScaledScreen {
                     x0 + 10,
                     y + 3,
                     Theme.TEXT);
-                hit(x0 + 6, y, x1 - 6, y + 14, () -> reveal(child), I18n.format("lagfinder.tip.reveal"));
+                hit(x0 + 6, y, x1 - 6, y + 14, () -> reveal(child), I18n.get("lagfinder.tip.reveal"));
                 y += 14;
             }
         }
@@ -2528,7 +2546,7 @@ public class GuiReport extends ScaledScreen {
             Theme.blend(0xFF1D232B, Theme.CONTROL_HOVER, lit));
         Theme.outline(x0, y0, x1, y1, Theme.blend(Theme.blend(Theme.BORDER, Theme.ACCENT, 0.4), Theme.ACCENT, lit));
         Icons.draw(Icons.SMALL_GRID, x0 + 7, y0 + 6, Theme.ACCENT);
-        String text = I18n.format("lagfinder.action.cards_count", GuiInstances.countInstances(entry));
+        String text = I18n.get("lagfinder.action.cards_count", GuiInstances.countInstances(entry));
         fontRendererObj.drawString(
             Theme.ellipsize(fontRendererObj, text, x1 - x0 - 40),
             x0 + 19,
@@ -2536,7 +2554,7 @@ public class GuiReport extends ScaledScreen {
             hovered ? Theme.TEXT : Theme.blend(Theme.TEXT_MUTED, Theme.TEXT, 0.5));
         String key = "Enter";
         fontRendererObj.drawString(key, x1 - 7 - fontRendererObj.getStringWidth(key), y0 + 5, Theme.TEXT_DISABLED);
-        hit(x0, y0, x1, y1, () -> openCards(entry), I18n.format("lagfinder.tip.cards"));
+        hit(x0, y0, x1, y1, () -> openCards(entry), I18n.get("lagfinder.tip.cards"));
     }
 
     private static int instancesOf(ReportEntry entry) {
@@ -2557,9 +2575,9 @@ public class GuiReport extends ScaledScreen {
         String where = Names.position(entry) + "  ·  " + report.dimensionName(entry.dim);
         boolean canTeleport = ClientScanner.INSTANCE.teleportAllowed();
         boolean highlighted = Highlighter.INSTANCE.isHighlighted(entry);
-        String[] labels = { I18n.format("lagfinder.action.teleport"),
-            I18n.format(highlighted ? "lagfinder.action.unhighlight" : "lagfinder.action.highlight"),
-            I18n.format("lagfinder.action.copy") };
+        String[] labels = { I18n.get("lagfinder.action.teleport"),
+            I18n.get(highlighted ? "lagfinder.action.unhighlight" : "lagfinder.action.highlight"),
+            I18n.get("lagfinder.action.copy") };
         String[][] icons = { Icons.SMALL_TELEPORT, Icons.SMALL_EYE, Icons.SMALL_COPY };
         int buttonsWidth = 0;
         int[] widths = new int[3];
@@ -2592,14 +2610,14 @@ public class GuiReport extends ScaledScreen {
             String tip;
             if (i == 0) {
                 action = enabled ? () -> teleport(entry) : null;
-                tip = I18n.format(canTeleport ? "lagfinder.tip.teleport" : "lagfinder.action.no_teleport");
+                tip = I18n.get(canTeleport ? "lagfinder.tip.teleport" : "lagfinder.action.no_teleport");
             } else if (i == 1) {
                 action = () -> Highlighter.INSTANCE.toggle(report, entry);
-                tip = entry.partCount() > 1 ? I18n.format("lagfinder.tip.highlight_network", entry.partCount())
-                    : I18n.format("lagfinder.tip.highlight");
+                tip = entry.partCount() > 1 ? I18n.get("lagfinder.tip.highlight_network", entry.partCount())
+                    : I18n.get("lagfinder.tip.highlight");
             } else {
-                action = () -> setClipboardString(entry.x + " " + entry.y + " " + entry.z);
-                tip = I18n.format("lagfinder.tip.copy");
+                action = () -> mc.keyboardHandler.setClipboard(entry.x + " " + entry.y + " " + entry.z);
+                tip = I18n.get("lagfinder.tip.copy");
             }
             hit(bx, y, bx + widths[i], y + 18, action, tip);
             bx += widths[i] + 4;

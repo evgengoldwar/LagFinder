@@ -1,6 +1,6 @@
 package lagfinder.client.gui.ui;
 
-import net.minecraft.client.gui.FontRenderer;
+import lagfinder.client.gui.ui.FontRenderer;
 
 /**
  * The header across the top of a window, the same on every screen of the mod: the window's icon in the accent color,

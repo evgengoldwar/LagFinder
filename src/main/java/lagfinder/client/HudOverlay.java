@@ -3,15 +3,15 @@ package lagfinder.client;
 import java.util.List;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.resources.I18n;
-import net.minecraft.util.MathHelper;
-import net.minecraftforge.client.event.RenderGameOverlayEvent;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.util.Mth;
+import net.neoforged.neoforge.client.event.RenderGuiEvent;
 
-import org.lwjgl.opengl.GL11;
-
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
+import lagfinder.Dims;
 import lagfinder.client.gui.GuiLagFinder;
+import lagfinder.client.gui.ui.FontRenderer;
+import lagfinder.client.gui.ui.Gfx;
 import lagfinder.client.gui.ui.Icons;
 import lagfinder.client.gui.ui.Theme;
 
@@ -26,45 +26,60 @@ public final class HudOverlay {
 
     private HudOverlay() {}
 
-    @SubscribeEvent
-    public void onOverlay(RenderGameOverlayEvent.Post event) {
-        if (event.type != RenderGameOverlayEvent.ElementType.ALL) {
+    public void onOverlay(RenderGuiEvent.Post event) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getDebugOverlay()
+            .showDebugScreen() || mc.screen instanceof GuiLagFinder || mc.options.hideGui) {
             return;
         }
-        Minecraft mc = Minecraft.getMinecraft();
-        if (mc.gameSettings.showDebugInfo || mc.currentScreen instanceof GuiLagFinder) {
-            return;
+        GuiGraphics before = Gfx.set(event.getGuiGraphics());
+        try {
+            FontRenderer font = FontRenderer.INSTANCE;
+            int width = event.getGuiGraphics()
+                .guiWidth();
+            ClientScanner scanner = ClientScanner.INSTANCE;
+            if (scanner.isActive()) {
+                drawProgress(font, width, scanner);
+            } else if (scanner.hasUnseenReport()) {
+                String text = I18n.get("lagfinder.hud.ready", KeyHandler.keyName());
+                int w = font.getStringWidth(text) + 24;
+                int x = (width - w) / 2, y = 4;
+                Theme.shadow(x, y, x + w, y + 16, 3);
+                Theme.glow(
+                    x,
+                    y,
+                    x + w,
+                    y + 16,
+                    Theme.SUCCESS,
+                    0.4 + 0.3 * Math.sin(System.currentTimeMillis() / 300.0));
+                Theme.fill(x, y, x + w, y + 16, Theme.PANEL);
+                Theme.outline(x, y, x + w, y + 16, Theme.SUCCESS);
+                Icons.draw(Icons.SMALL_CHECK, x + 6, y + 5, Theme.SUCCESS);
+                font.drawString(text, x + 17, y + 4, Theme.TEXT);
+            }
+            drawHighlights(mc, font);
+            HighlightCard.draw(
+                mc,
+                font,
+                width,
+                event.getGuiGraphics()
+                    .guiHeight());
+            event.getGuiGraphics()
+                .flush();
+        } finally {
+            Gfx.set(before);
         }
-        FontRenderer font = mc.fontRenderer;
-        int width = event.resolution.getScaledWidth();
-        GL11.glDisable(GL11.GL_LIGHTING);
-        ClientScanner scanner = ClientScanner.INSTANCE;
-        if (scanner.isActive()) {
-            drawProgress(font, width, scanner);
-        } else if (scanner.hasUnseenReport()) {
-            String text = I18n.format("lagfinder.hud.ready", KeyHandler.keyName());
-            int w = font.getStringWidth(text) + 24;
-            int x = (width - w) / 2, y = 4;
-            Theme.shadow(x, y, x + w, y + 16, 3);
-            Theme.glow(x, y, x + w, y + 16, Theme.SUCCESS, 0.4 + 0.3 * Math.sin(System.currentTimeMillis() / 300.0));
-            Theme.fill(x, y, x + w, y + 16, Theme.PANEL);
-            Theme.outline(x, y, x + w, y + 16, Theme.SUCCESS);
-            Icons.draw(Icons.SMALL_CHECK, x + 6, y + 5, Theme.SUCCESS);
-            font.drawString(text, x + 17, y + 4, Theme.TEXT);
-        }
-        drawHighlights(mc, font);
-        HighlightCard.draw(mc, font, width, event.resolution.getScaledHeight());
     }
 
     private static void drawProgress(FontRenderer font, int width, ClientScanner scanner) {
-        String mode = GuiLagFinder.kindName(scanner.side(), scanner.focus());
+        String mode = I18n.get("lagfinder.mode.tps");
         String state;
         switch (scanner.phase()) {
             case REQUESTED:
-                state = I18n.format("lagfinder.hud.starting");
+                state = I18n.get("lagfinder.hud.starting");
                 break;
             case RECEIVING:
-                state = I18n.format("lagfinder.hud.receiving");
+                state = I18n.get("lagfinder.hud.receiving");
                 break;
             default:
                 state = Names.clock(scanner.secondsLeft());
@@ -88,22 +103,22 @@ public final class HudOverlay {
 
     private static void drawHighlights(Minecraft mc, FontRenderer font) {
         List<Highlighter.Highlight> highlights = Highlighter.INSTANCE.all();
-        if (highlights.isEmpty() || mc.thePlayer == null) {
+        if (highlights.isEmpty() || mc.player == null || mc.level == null) {
             return;
         }
         int y = 30;
-        int dim = mc.theWorld.provider.dimensionId;
+        int dim = Dims.id(mc.level);
         Highlighter.Highlight hovered = Highlighter.INSTANCE.hovered();
         for (Highlighter.Highlight highlight : highlights) {
             String where;
             String arrow = "";
             if (highlight.dim != dim) {
-                where = I18n.format("lagfinder.hud.other_dimension", highlight.dim);
+                where = I18n.get("lagfinder.hud.other_dimension", highlight.report.dimensionName(highlight.dim));
             } else {
-                double dx = highlight.x + 0.5 - mc.thePlayer.posX, dz = highlight.z + 0.5 - mc.thePlayer.posZ;
-                double dy = highlight.y - mc.thePlayer.posY;
+                double dx = highlight.x + 0.5 - mc.player.getX(), dz = highlight.z + 0.5 - mc.player.getZ();
+                double dy = highlight.y - mc.player.getY();
                 where = Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz)) + " m";
-                arrow = arrow(dx, dz, mc.thePlayer.rotationYaw) + " ";
+                arrow = arrow(dx, dz, mc.player.getYRot()) + " ";
             }
             String text = Theme.ellipsize(font, highlight.name, 140);
             int w = font.getStringWidth(text) + font.getStringWidth(arrow + where) + 22;
@@ -122,7 +137,7 @@ public final class HudOverlay {
     /** An arrow pointing the way to go, relative to where the player looks. */
     private static String arrow(double dx, double dz, float yaw) {
         double angle = Math.toDegrees(Math.atan2(-dx, dz)) - yaw;
-        int step = MathHelper.floor_double((angle % 360 + 360 + 22.5) / 45) % 8;
+        int step = Mth.floor((angle % 360 + 360 + 22.5) / 45) % 8;
         return new String[] { "↑", "↗", "→", "↘", "↓", "↙", "←", "↖" }[step];
     }
 }

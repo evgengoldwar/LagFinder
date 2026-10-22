@@ -5,6 +5,30 @@ A lag profiler for Minecraft 1.7.10 (GTNH), in the spirit of LagGoggles and Spar
 
 Press **L** to open it.
 
+## This branch: NeoForge 1.21.1 (ATM10)
+
+`neoforge-1.21.1` is the port to NeoForge 1.21.1 (All the Mods 10). Its first version has the server **TPS** scan
+and the report window; the sections below describe the 1.7.10 mod, and what is not listed here is not ported yet.
+
+- **Server – TPS**: block entities, entities (riders apart), scheduled and random block and fluid ticks, every
+  listener of the game's event bus, world tasks (mob spawning, chunk tickets, unloading and saving, the random tick
+  sweep, weather, raids), the server's own work (network, player list, datapack functions, chunks sent, entity
+  tracking, waiting for chunks, autosave) and **AE2 networks** (AE2 19.x): each grid named by its controller's place
+  and node count, the machines it ticked by kind and place, and its services (channels, crafting, storage, energy...).
+  Each thing counts only its own time. Full or light (one tick in four) scans.
+- Reports are saved on the server under `lagfinder/reports` and on the client that asked under `lagfinder/reports`
+  of its game folder (the last 50 each); the **Logs** tab opens the client's.
+- The report window: health tiles, the main suspect, tabs per category, mod → kind tree with average, peak and
+  spikes, search and sort, cards per instance with **Teleport**, **Highlight** (outline through walls, a beam and the
+  HUD) and **Copy**, the TPS graph with the picked thing's load, and a click on the graph for what lagged then.
+- Install on the server and on the clients that scan. The channel is optional: players without the mod join as usual.
+- Permissions go through NeoForge's PermissionAPI: `lagfinder.scan` and `lagfinder.teleport`, by default operators
+  and the owner of a single player world. A permission plugin such as LuckPerms can grant them to ranks when it is
+  the server's permission handler (`permissionHandler` in `config/neoforge-server.toml`). Server settings are in
+  `serverconfig/lagfinder-server.toml` of the world (teleport, longest scan, spike threshold, light scan rate).
+- Not ported yet: client FPS scan, Methods (sampler), Objects, Allocations, the shared server reports archive,
+  GregTech / EnderIO / OpenComputers compat, neighbor updates, lighting and pathfinding timing.
+
 ## Scanning
 
 - **Server – TPS**: every tile entity, entity, scheduled/random block tick, event handler, Applied Energistics 2

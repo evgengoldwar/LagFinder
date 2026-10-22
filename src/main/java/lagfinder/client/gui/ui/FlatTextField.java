@@ -1,28 +1,31 @@
 package lagfinder.client.gui.ui;
 
-import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.GuiTextField;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.components.EditBox;
+import net.minecraft.network.chat.Component;
 
 /**
  * Text field drawn as a flat box, with an optional grey hint while it is empty. A right click on it clears its text
- * like the search fields of the game's creative inventory.
+ * like the search fields of the game's creative inventory. The typing itself is the game's own field's.
  */
-public class FlatTextField extends GuiTextField {
+public class FlatTextField {
 
     private final FontRenderer font;
+    private final EditBox box;
+    private boolean editable = true;
     public final int boxX, boxY, boxWidth, boxHeight;
     private String hint = "";
     private Runnable onCleared;
 
     public FlatTextField(FontRenderer font, int x, int y, int width, int height) {
-        // The vanilla field only draws the text; the box around it is drawn here.
-        super(font, x + 4, y + (height - 8) / 2, width - 8, 8);
         this.font = font;
         this.boxX = x;
         this.boxY = y;
         this.boxWidth = width;
         this.boxHeight = height;
-        setEnableBackgroundDrawing(false);
+        box = new EditBox(font.font(), x + 4, y + (height - 8) / 2, width - 8, 9, Component.empty());
+        box.setBordered(false);
+        box.setTextColor(Theme.TEXT & 0xFFFFFF);
     }
 
     public FlatTextField setHint(String hint) {
@@ -36,34 +39,78 @@ public class FlatTextField extends GuiTextField {
         return this;
     }
 
+    public void setMaxStringLength(int length) {
+        box.setMaxLength(length);
+    }
+
+    public String getText() {
+        return box.getValue();
+    }
+
+    public void setText(String text) {
+        box.setValue(text == null ? "" : text);
+    }
+
+    public boolean isFocused() {
+        return box.isFocused();
+    }
+
+    public void setFocused(boolean focused) {
+        box.setFocused(focused);
+    }
+
+    public void setEnabled(boolean enabled) {
+        editable = enabled;
+        box.setEditable(enabled);
+        if (!enabled) {
+            box.setFocused(false);
+        }
+    }
+
+    public void updateCursorCounter() {}
+
     public boolean isMouseOver(int mouseX, int mouseY) {
         return Theme.inside(mouseX, mouseY, boxX, boxY, boxX + boxWidth, boxY + boxHeight);
     }
 
-    @Override
     public void mouseClicked(int mouseX, int mouseY, int button) {
-        if (isMouseOver(mouseX, mouseY)) {
-            // Clamp into the text area so clicks anywhere in the box focus the field.
-            int textY = boxY + (boxHeight - 8) / 2 + 4;
-            super.mouseClicked(Math.max(boxX + 4, Math.min(boxX + boxWidth - 5, mouseX)), textY, button);
-            if (button == 1 && !getText().isEmpty()) {
-                setText("");
-                setFocused(true);
-                if (onCleared != null) {
-                    onCleared.run();
-                }
-            }
-        } else {
-            super.mouseClicked(mouseX, mouseY, button);
+        if (!isMouseOver(mouseX, mouseY)) {
+            box.setFocused(false);
+            return;
         }
+        if (!editable) {
+            return;
+        }
+        box.setFocused(true);
+        if (button == 1 && !getText().isEmpty()) {
+            setText("");
+            if (onCleared != null) {
+                onCleared.run();
+            }
+            return;
+        }
+        int textY = boxY + (boxHeight - 8) / 2 + 4;
+        box.mouseClicked(Math.max(boxX + 4, Math.min(boxX + boxWidth - 5, mouseX)), textY, button);
     }
 
-    @Override
+    /**
+     * A key typed while the field has the focus: a character ({@code typedChar} not 0) or a key the field acts on
+     * (moving, deleting, copying). Whether the field took it.
+     */
+    public boolean textboxKeyTyped(char typedChar, int keyCode) {
+        if (!box.isFocused()) {
+            return false;
+        }
+        if (typedChar != 0) {
+            return box.charTyped(typedChar, ScaledScreen.modifiers());
+        }
+        return box.keyPressed(keyCode, 0, ScaledScreen.modifiers());
+    }
+
     public void drawTextBox() {
         if (isFocused()) {
             Theme.glow(boxX, boxY, boxX + boxWidth, boxY + boxHeight, Theme.ACCENT, 0.6);
         }
-        // Sunk into the window: darker at the top.
         Theme.roundBox(
             boxX,
             boxY,
@@ -78,6 +125,8 @@ public class FlatTextField extends GuiTextField {
                 boxY + (boxHeight - 8) / 2,
                 Theme.TEXT_DISABLED);
         }
-        super.drawTextBox();
+        box.render(Gfx.g(), -1, -1, Minecraft.getInstance()
+            .getTimer()
+            .getGameTimeDeltaPartialTick(true));
     }
 }

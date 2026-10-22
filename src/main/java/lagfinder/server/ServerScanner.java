@@ -1,6 +1,7 @@
 package lagfinder.server;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -12,14 +13,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
-import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.World;
-import net.minecraft.world.WorldServer;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.server.ServerLifecycleHooks;
 
-import cpw.mods.fml.common.eventhandler.EventPriority;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.TickEvent;
 import lagfinder.Config;
 import lagfinder.LagFinder;
 import lagfinder.core.Describer;
@@ -45,9 +43,9 @@ public final class ServerScanner {
     private ProfileSession session;
     private UUID owner;
     private long tickStart;
-    /** Whether MinecraftServer.tick() marks the ticks (its mixin applied); the tick events do otherwise. */
+    /** Whether MinecraftServer.tickServer() marks the ticks (its mixin applied); the tick events do otherwise. */
     private volatile boolean tickHooked;
-    /** Whether the worlds' ticks are marked around FML's world tick events (their mixin applied). */
+    /** Whether the worlds' ticks are marked around NeoForge's world tick events (their mixin applied). */
     private volatile boolean worldHooked;
     /** Whether the server's tick ran in this round of the integrated server's (it doesn't while the game is paused). */
     private boolean ticked;
@@ -61,7 +59,7 @@ public final class ServerScanner {
      * When each world's tick started, what the scan itself had taken of the tick by then, and what was measured
      * outside any thing.
      */
-    private final Map<World, long[]> worldStarts = new IdentityHashMap<>();
+    private final Map<Level, long[]> worldStarts = new IdentityHashMap<>();
 
     /**
      * Counts the servers this one ran: a report made for a server that stopped meanwhile (the player left the world) is
@@ -80,59 +78,49 @@ public final class ServerScanner {
 
     private ServerScanner() {}
 
+    /** Where the server keeps its reports (the last {@link ReportFiles#KEEP}). */
+    public static File folder() {
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        File root = (server != null ? server.getServerDirectory() : java.nio.file.Path.of(""))
+            .toAbsolutePath()
+            .toFile();
+        return new File(new File(root, "lagfinder"), "reports");
+    }
+
     /** Runs the task on the server thread at the start of the next tick (before it is measured). */
     public void schedule(Runnable task) {
         tasks.add(task);
     }
 
-    /** Whether the player may scan: the owner of a single player world always, others as operators. */
-    public static boolean canScan(EntityPlayerMP player) {
-        return player != null && (isOperator(player) || ServerUtilitiesAccess.allowed(player));
-    }
-
-    /** The owner of a single player world, or an operator. */
-    private static boolean isOperator(EntityPlayerMP player) {
-        MinecraftServer server = MinecraftServer.getServer();
-        if (server == null) {
-            return false;
-        }
-        if (server.isSinglePlayer() && player.getCommandSenderName()
-            .equals(server.getServerOwner())) {
-            return true;
-        }
-        return server.getConfigurationManager()
-            .func_152596_g(player.getGameProfile());
+    /** Whether the player may scan: {@code lagfinder.scan}, operators by default. */
+    public static boolean canScan(ServerPlayer player) {
+        return Permissions.has(player, Permissions.SCAN);
     }
 
     /**
-     * Whether the player may teleport from a report: to any place, as {@code /tp} does, so only those who may use it,
-     * even where everyone may scan.
+     * Whether the player may teleport from a report: to any place, as {@code /tp} does, so only those who may, even
+     * where others may scan.
      */
-    public static boolean canTeleport(EntityPlayerMP player) {
-        return Config.allowTeleport && isOperator(player);
+    public static boolean canTeleport(ServerPlayer player) {
+        return Config.allowTeleport && Permissions.has(player, Permissions.TELEPORT);
     }
 
     /** Whether the player is still on the server (a task runs a tick after it was asked for). */
-    static boolean isOnline(EntityPlayerMP player) {
-        MinecraftServer server = MinecraftServer.getServer();
-        if (server == null || player == null || player.isDead) {
+    static boolean isOnline(ServerPlayer player) {
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server == null || player == null || player.hasDisconnected()) {
             return false;
         }
-        for (Object object : server.getConfigurationManager().playerEntityList) {
-            if (object == player) {
-                return true;
-            }
-        }
-        return false;
+        return server.getPlayerList()
+            .getPlayer(player.getUUID()) == player;
     }
 
-    public void start(EntityPlayerMP player, int seconds, ScanFocus focus, boolean light) {
-        if (!canScan(player)) {
-            sendStatus(player, "lagfinder.message.not_allowed");
+    public void start(ServerPlayer player, int seconds, ScanFocus focus, boolean light) {
+        if (!isOnline(player)) {
             return;
         }
-        if (ownerPlayer(player.getUniqueID()) == null) {
-            // Left before the scan could start: nobody would get its report.
+        if (!canScan(player)) {
+            sendStatus(player, "lagfinder.message.not_allowed");
             return;
         }
         if (session != null || building || !outgoing.isEmpty()) {
@@ -150,43 +138,52 @@ public final class ServerScanner {
         if (light) {
             session.setSampleEvery(Config.lightScanEvery);
         }
-        owner = player.getUniqueID();
+        owner = player.getUUID();
         tickStart = 0;
         lastStatus = 0;
         worldStarts.clear();
+        EventTiming.install();
         ProfileSession.setServer(session);
         LagFinder.LOG.info(
-            "{} started a {} s {} tick scan{}",
-            player.getCommandSenderName(),
+            "{} started a {} s tick scan{}",
+            player.getGameProfile()
+                .getName(),
             seconds,
-            focus,
             session.sampleEvery() > 1 ? " (light: 1 tick in " + session.sampleEvery() + ")" : "");
         sendStatus(player, null);
-        broadcast(player.getUniqueID());
+        broadcast(player.getUUID());
     }
 
     /**
      * Cancels the player's own scan: the one running, or its report still being made or sent (the player pressed
      * cancel as the scan ended). A player whose start was refused (another's scan runs) cancels nothing of the other's.
      */
-    public void cancel(EntityPlayerMP player) {
-        boolean mine = player.getUniqueID()
+    public void cancel(ServerPlayer player) {
+        if (!isOnline(player)) {
+            return;
+        }
+        boolean mine = player.getUUID()
             .equals(owner);
         if (mine && session != null) {
             stop();
-            LagFinder.LOG.info("{} cancelled the tick scan", player.getCommandSenderName());
+            LagFinder.LOG.info(
+                "{} cancelled the tick scan",
+                player.getGameProfile()
+                    .getName());
         } else if (mine && (building || !outgoing.isEmpty())) {
-            // A report made before is never sent: the writer's result is dropped, the parts left unsent.
             generation++;
             building = false;
             outgoing.clear();
-            LagFinder.LOG.info("{} cancelled the tick scan's report", player.getCommandSenderName());
+            LagFinder.LOG.info(
+                "{} cancelled the tick scan's report",
+                player.getGameProfile()
+                    .getName());
         } else {
             sendStatus(player, null);
             return;
         }
         sendStatus(player, "lagfinder.message.cancelled");
-        broadcast(player.getUniqueID());
+        broadcast(player.getUUID());
     }
 
     /** Stops the scan running, all of it: cancelled, or the server stopping. */
@@ -204,13 +201,13 @@ public final class ServerScanner {
             }
         }
         ProfileSession.setServer(null);
+        EventTiming.uninstall();
         session = null;
         worldStarts.clear();
     }
 
-    public void teleport(EntityPlayerMP player, Net.Teleport message) {
+    public void teleport(ServerPlayer player, Net.Teleport message) {
         if (!isOnline(player)) {
-            // Left before its turn came: moving it would put it back into a world.
             return;
         }
         if (!canTeleport(player)) {
@@ -222,11 +219,14 @@ public final class ServerScanner {
         }
     }
 
-    public void sendStatus(EntityPlayerMP player, String message) {
+    public void sendStatus(ServerPlayer player, String message) {
+        if (!isOnline(player)) {
+            return;
+        }
         Net.Status status = new Net.Status();
         status.allowed = canScan(player);
         status.teleportAllowed = canTeleport(player);
-        boolean mine = player.getUniqueID()
+        boolean mine = player.getUUID()
             .equals(owner);
         if (session != null) {
             status.state = mine ? Net.Status.RUNNING : Net.Status.BUSY;
@@ -243,9 +243,9 @@ public final class ServerScanner {
         status.totalSeconds = session != null ? (int) Math.round(session.durationNanos / 1e9) : 0;
         status.maxSeconds = Config.maxScanSeconds;
         if (status.allowed) {
-            listeners.add(player.getUniqueID());
+            listeners.add(player.getUUID());
         } else {
-            listeners.remove(player.getUniqueID());
+            listeners.remove(player.getUUID());
             status.state = Net.Status.IDLE;
             status.progress = 0;
             status.secondsLeft = 0;
@@ -260,7 +260,7 @@ public final class ServerScanner {
             if (skip.contains(id)) {
                 continue;
             }
-            EntityPlayerMP player = ownerPlayer(id);
+            ServerPlayer player = ownerPlayer(id);
             if (player == null) {
                 listeners.remove(id);
             } else {
@@ -269,38 +269,32 @@ public final class ServerScanner {
         }
     }
 
-    private EntityPlayerMP ownerPlayer(UUID id) {
-        MinecraftServer server = MinecraftServer.getServer();
+    private ServerPlayer ownerPlayer(UUID id) {
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server == null || id == null) {
             return null;
         }
-        for (Object object : server.getConfigurationManager().playerEntityList) {
-            EntityPlayerMP player = (EntityPlayerMP) object;
-            if (player.getUniqueID()
-                .equals(id)) {
-                return player;
-            }
-        }
-        return null;
+        return server.getPlayerList()
+            .getPlayer(id);
     }
 
     /**
-     * The server's tick starts: called first thing in {@code MinecraftServer.tick()} (MixinMinecraftServer), so every
-     * mod's tick handlers, whatever their priority and order, are inside the tick measured.
+     * The server's tick starts: called first thing in {@code MinecraftServer.tickServer()} (MixinMinecraftServer), so
+     * every mod's tick handlers, whatever their priority and order, are inside the tick measured.
      */
     public void tickStarts() {
         tickHooked = true;
         beginTick();
     }
 
-    /** The server's tick ends: called last thing in {@code MinecraftServer.tick()}. */
+    /** The server's tick ends: called last thing in {@code MinecraftServer.tickServer()}. */
     public void tickEnds() {
         endTick();
     }
 
     /**
-     * A round of the single player world's server starts ({@code IntegratedServer.tick()}, MixinIntegratedServer): it
-     * runs the server's tick only while the game isn't paused.
+     * A round of the single player world's server starts ({@code IntegratedServer.tickServer()}): it runs the server's
+     * tick only while the game isn't paused.
      */
     public void roundStarts() {
         roundHooked = true;
@@ -310,8 +304,7 @@ public final class ServerScanner {
 
     /**
      * The round ends: when the game was paused and no tick ran, the scan leaves the pause out from the start of the
-     * round (else it would show a world standing still, and the worlds saved as the game pauses as a lag spike), and
-     * what was asked of the server is done all the same, a report on its way still sent.
+     * round, and what was asked of the server is done all the same, a report on its way still sent.
      */
     public void roundEnds() {
         if (ticked) {
@@ -320,29 +313,24 @@ public final class ServerScanner {
         runTasks();
         sendParts();
         if (session != null) {
-            // The worlds saved as the game paused (their save events), and the tasks: no part of a tick.
             session.dropPeriod();
             session.paused(roundStart);
-            // The player is still told how things stand (paused), and a scan whose player left still ends.
             checkIn(System.nanoTime());
         }
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onTickStart(TickEvent.ServerTickEvent event) {
-        // Only where the tick isn't hooked (the mixin didn't apply): the tick events mark it then.
-        if (event.phase == TickEvent.Phase.START && !tickHooked) {
+    /** The server tick event started: marks the tick only where the mixin didn't apply. */
+    public void tickEventStarts() {
+        if (!tickHooked) {
             beginTick();
             if (session != null) {
-                // Mods' tick handlers ahead of this one are left out: the report says so.
                 session.tickedByEvents();
             }
         }
     }
 
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onTickEnd(TickEvent.ServerTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && !tickHooked) {
+    public void tickEventEnds() {
+        if (!tickHooked) {
             endTick();
         }
     }
@@ -352,7 +340,6 @@ public final class ServerScanner {
         runTasks();
         sendParts();
         if (session != null) {
-            // What LagFinder's own tasks (a teleport, a report sent) set off is no part of the tick.
             session.dropPeriod();
             tickStart = System.nanoTime();
             session.beginPeriod(tickStart);
@@ -376,8 +363,6 @@ public final class ServerScanner {
         }
         long now = System.nanoTime();
         if (tickHooked && worldHooked) {
-            // What no hook measured: the server's own work outside the worlds and the events. Only known when the
-            // tick and the worlds are marked around all of it, not from inside LagFinder's own tick handlers.
             session.recordRest(now - tickStart);
         }
         session.endPeriod(tickStart, now - tickStart);
@@ -388,7 +373,6 @@ public final class ServerScanner {
         if (!checkIn(now)) {
             return;
         }
-        // The time taken to add up the tick (and tell how far along it is) is left out of the scan's length.
         session.addOverhead(System.nanoTime() - now);
     }
 
@@ -401,8 +385,9 @@ public final class ServerScanner {
             return true;
         }
         lastStatus = now;
-        EntityPlayerMP player = ownerPlayer(owner);
+        ServerPlayer player = ownerPlayer(owner);
         if (player != null && canScan(player)) {
+            EventTiming.install();
             sendStatus(player, null);
             return true;
         }
@@ -413,50 +398,44 @@ public final class ServerScanner {
     }
 
     /**
-     * A world's tick starts: called just before FML's world tick start event (MixinMinecraftServer), so the world's
-     * time holds every mod's handlers of it, whatever their priority and order.
+     * A world's tick starts: called just before NeoForge's world tick start event (MixinMinecraftServer), so the
+     * world's time holds every mod's handlers of it, whatever their priority and order.
      */
-    public void worldStarts(World world) {
+    public void worldStarts(Level world) {
         worldHooked = true;
         beginWorld(world);
     }
 
-    /** A world's tick ends: called just after FML's world tick end event. */
-    public void worldEnds(World world) {
+    /** A world's tick ends: called just after NeoForge's world tick end event. */
+    public void worldEnds(Level world) {
         endWorld(world);
     }
 
-    @SubscribeEvent(priority = EventPriority.HIGHEST)
-    public void onWorldTickStart(TickEvent.WorldTickEvent event) {
-        // Only where the worlds' ticks aren't hooked (the mixin didn't apply).
-        if (event.phase == TickEvent.Phase.START && !worldHooked) {
-            beginWorld(event.world);
+    public void worldEventStarts(Level world) {
+        if (!worldHooked) {
+            beginWorld(world);
         }
     }
 
-    @SubscribeEvent(priority = EventPriority.LOWEST)
-    public void onWorldTickEnd(TickEvent.WorldTickEvent event) {
-        if (event.phase == TickEvent.Phase.END && !worldHooked) {
-            endWorld(event.world);
+    public void worldEventEnds(Level world) {
+        if (!worldHooked) {
+            endWorld(world);
         }
     }
 
-    private void beginWorld(World world) {
+    private void beginWorld(Level world) {
         if (session != null) {
             worldStarts.put(world, new long[] { System.nanoTime(), session.periodOverhead(), session.nested() });
         }
     }
 
-    private void endWorld(World world) {
+    private void endWorld(Level world) {
         if (session == null) {
             return;
         }
         long[] start = worldStarts.remove(world);
         if (start != null) {
-            // Without what timing the things in it took.
             long nanos = System.nanoTime() - start[0] - (session.periodOverhead() - start[1]);
-            // Marked around FML's world tick (not inside LagFinder's own handlers of it), the world counts as one thing
-            // measured: what is left of the tick is the server's own work.
             session.recordWorld(world, Math.max(0, nanos), worldHooked ? start[2] : -1);
         }
     }
@@ -466,13 +445,11 @@ public final class ServerScanner {
         stop(false);
         UUID to = owner;
         String source = serverName();
-        MinecraftServer server = MinecraftServer.getServer();
-        if (server != null && server.isSinglePlayer() && !roundHooked) {
-            // The pauses of the game could not be told apart from a server standing still.
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
+        if (server != null && server.isSingleplayer() && !roundHooked) {
             finished.warn("lagfinder.warning.pause_events");
         }
         try {
-            // What needs the game, quickly; the report itself is built on the writer's thread.
             finished.prepareReport();
         } catch (Throwable t) {
             LagFinder.LOG.error("Could not build the scan's report", t);
@@ -483,12 +460,11 @@ public final class ServerScanner {
         building = true;
         int id = ++reportId;
         int made = generation;
-        EntityPlayerMP ownerPlayer = ownerPlayer(to);
+        File folder = folder();
+        ServerPlayer ownerPlayer = ownerPlayer(to);
         if (ownerPlayer != null) {
-            // Told at once that the scan ended and its report is on the way: not left on a scan with nothing left.
             sendStatus(ownerPlayer, null);
         }
-        // Building, finishing and compressing a big report takes a moment: not on the server's thread.
         Thread writer = new Thread(() -> {
             try {
                 Report report = finished.buildReport(source);
@@ -502,11 +478,10 @@ public final class ServerScanner {
                 if (made != generation) {
                     return;
                 }
-                ReportFiles.save(ServerReports.folder(), report, data);
+                ReportFiles.save(folder, report, data);
                 int total = Math.max(1, (data.length + Net.PART_SIZE - 1) / Net.PART_SIZE);
                 schedule(() -> {
                     if (made != generation) {
-                        // Made for a server that stopped since.
                         return;
                     }
                     outgoing.clear();
@@ -542,7 +517,7 @@ public final class ServerScanner {
      * The report couldn't be made: its owner is told (not left waiting on it), and the others that the server is free.
      */
     private void failed(UUID to) {
-        EntityPlayerMP player = ownerPlayer(to);
+        ServerPlayer player = ownerPlayer(to);
         if (player != null) {
             sendStatus(player, "lagfinder.message.failed");
         }
@@ -550,11 +525,10 @@ public final class ServerScanner {
     }
 
     private void sendParts() {
-        ServerReports.INSTANCE.tick();
         if (outgoing.isEmpty()) {
             return;
         }
-        EntityPlayerMP player = ownerPlayer(outgoingTo);
+        ServerPlayer player = ownerPlayer(outgoingTo);
         if (player == null || !canScan(player)) {
             outgoing.clear();
             broadcast();
@@ -565,28 +539,26 @@ public final class ServerScanner {
         }
         if (outgoing.isEmpty()) {
             sendStatus(player, null);
-            // The server is free for the others again.
-            broadcast(player.getUniqueID());
+            broadcast(player.getUUID());
         }
     }
 
     private static String serverName() {
-        MinecraftServer server = MinecraftServer.getServer();
+        MinecraftServer server = ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return "";
         }
-        if (server.isSinglePlayer()) {
-            WorldServer world = server.worldServerForDimension(0);
-            return world != null ? world.getWorldInfo()
-                .getWorldName() : "";
+        if (server.isSingleplayer()) {
+            return server.getWorldData()
+                .getLevelName();
         }
-        return server.getMOTD();
+        String motd = server.getMotd();
+        return motd == null ? "" : motd;
     }
 
     /** The server stopped: nothing carries over to the next one. */
     public void reset() {
         generation++;
-        ServerReports.INSTANCE.reset();
         stop();
         tasks.clear();
         outgoing.clear();

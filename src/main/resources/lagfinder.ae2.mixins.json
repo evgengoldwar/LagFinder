@@ -1,0 +1,14 @@
+{
+  "required": false,
+  "minVersion": "0.8",
+  "package": "lagfinder.mixins.ae2",
+  "plugin": "lagfinder.mixins.ae2.Ae2MixinPlugin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "MixinGrid",
+    "MixinTickManagerService"
+  ],
+  "injectors": {
+    "defaultRequire": 0
+  }
+}

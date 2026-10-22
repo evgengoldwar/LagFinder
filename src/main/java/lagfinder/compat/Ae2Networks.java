@@ -7,17 +7,22 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
-import net.minecraft.world.World;
-import net.minecraftforge.common.DimensionManager;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 import appeng.api.networking.IGrid;
-import appeng.api.networking.IGridBlock;
-import appeng.api.networking.IGridHost;
 import appeng.api.networking.IGridNode;
-import appeng.api.util.DimensionalCoord;
+import appeng.parts.AEBasePart;
+import appeng.api.stacks.AEItemKey;
+import appeng.blockentity.networking.ControllerBlockEntity;
+import appeng.me.InWorldGridNode;
+import lagfinder.Dims;
 import lagfinder.core.LocationKind;
+import lagfinder.core.ModResolver;
 import lagfinder.core.Node;
 import lagfinder.core.ReportEntry;
 
@@ -28,23 +33,24 @@ import lagfinder.core.ReportEntry;
  */
 public final class Ae2Networks {
 
-    /**
-     * AE2's own work by its class, in English; the client names it in its language by {@code lagfinder.ae2.<class>}.
-     */
+    /** AE2's own work by its class, in English; the client names it in its language by {@code lagfinder.ae2.<class>}. */
     private static final Map<String, String> WORK = new HashMap<>();
 
     static {
-        WORK.put("PathGridCache", "Channels");
-        WORK.put("TickManagerCache", "Machine tick scheduling");
-        WORK.put("CraftingGridCache", "Crafting");
-        WORK.put("EnergyGridCache", "Energy");
-        WORK.put("GridStorageCache", "Storage");
-        WORK.put("SecurityCache", "Security");
-        WORK.put("SpatialPylonCache", "Spatial IO");
-        WORK.put("P2PCache", "P2P tunnels");
+        WORK.put("PathingService", "Channels");
+        WORK.put("TickManagerService", "Machine tick scheduling");
+        WORK.put("CraftingService", "Crafting");
+        WORK.put("EnergyService", "Energy");
+        WORK.put("StorageService", "Storage");
+        WORK.put("SpatialPylonService", "Spatial IO");
+        WORK.put("P2PService", "P2P tunnels");
+        WORK.put("StatisticsService", "Statistics");
     }
 
     private Ae2Networks() {}
+
+    /** A place in the world: its dimension and block. */
+    private record Place(int dim, BlockPos pos) {}
 
     public static void describe(Node leaf, Map<Object, String> names) {
         IGrid grid = (IGrid) leaf.live;
@@ -62,14 +68,13 @@ public final class Ae2Networks {
         leaf.typeKey = "lagfinder:ae2_network";
         leaf.name = "ME networks";
         leaf.translationKey = "lagfinder.pipes.ae2";
-        leaf.detail = "Grid.update, TickManagerCache.onUpdateTick";
-        DimensionalCoord at = controllerOf(grid);
+        leaf.detail = "Grid.onLevelEndTick, TickManagerService";
+        Place at = controllerOf(grid);
         boolean controller = at != null;
-        List<DimensionalCoord> places = new ArrayList<>();
+        List<Place> places = new ArrayList<>();
         try {
             for (IGridNode node : grid.getNodes()) {
-                IGridBlock block = node.getGridBlock();
-                DimensionalCoord c = block != null ? block.getLocation() : null;
+                Place c = placeOf(node);
                 if (c != null) {
                     places.add(c);
                     if (at == null) {
@@ -82,20 +87,30 @@ public final class Ae2Networks {
         }
         if (at != null) {
             leaf.kind = LocationKind.BLOCK;
-            leaf.dim = at.getDimension();
-            leaf.x = at.x;
-            leaf.y = at.y;
-            leaf.z = at.z;
+            leaf.dim = at.dim();
+            leaf.x = at.pos()
+                .getX();
+            leaf.y = at.pos()
+                .getY();
+            leaf.z = at.pos()
+                .getZ();
         }
         Set<Long> seen = new HashSet<>();
         List<int[]> parts = new ArrayList<>();
-        for (DimensionalCoord c : places) {
-            if (at != null && c.getDimension() != at.getDimension() || parts.size() >= ReportEntry.MAX_PARTS) {
+        for (Place c : places) {
+            if (at != null && c.dim() != at.dim() || parts.size() >= ReportEntry.MAX_PARTS) {
                 continue;
             }
-            long key = ((long) c.x & 0x3FFFFFFL) << 38 | ((long) c.z & 0x3FFFFFFL) << 12 | (c.y & 0xFFFL);
-            if (seen.add(key)) {
-                parts.add(new int[] { c.x, c.y, c.z });
+            if (seen.add(
+                c.pos()
+                    .asLong())) {
+                parts.add(
+                    new int[] { c.pos()
+                        .getX(),
+                        c.pos()
+                            .getY(),
+                        c.pos()
+                            .getZ() });
             }
         }
         leaf.parts = new int[parts.size() * 3];
@@ -106,15 +121,38 @@ public final class Ae2Networks {
         leaf.label = nodes + (nodes == 1 ? " node" : " nodes") + (controller ? "" : " · no controller");
     }
 
-    private static DimensionalCoord controllerOf(IGrid grid) {
-        DimensionalCoord at = null;
+    /** Where the node is: its block, or the block of the cable or part it is on. */
+    private static Place placeOf(IGridNode node) {
         try {
-            Class<? extends IGridHost> controllers = Class
-                .forName("appeng.tile.networking.TileController", false, Ae2Networks.class.getClassLoader())
-                .asSubclass(IGridHost.class);
-            for (IGridNode node : grid.getMachines(controllers)) {
-                DimensionalCoord c = node.getGridBlock()
-                    .getLocation();
+            Level level = node.getLevel();
+            if (level == null) {
+                return null;
+            }
+            if (node instanceof InWorldGridNode inWorld) {
+                return new Place(Dims.id(level), inWorld.getLocation());
+            }
+            Object owner = node.getOwner();
+            if (owner instanceof BlockEntity tile) {
+                return new Place(Dims.id(level), tile.getBlockPos());
+            }
+            if (owner instanceof AEBasePart part && part.getBlockEntity() != null) {
+                return new Place(
+                    Dims.id(level),
+                    part.getBlockEntity()
+                        .getBlockPos());
+            }
+        } catch (Throwable ignored) {
+            // No place known.
+        }
+        return null;
+    }
+
+    /** The first of the network's controllers, or null when it has none. */
+    private static Place controllerOf(IGrid grid) {
+        Place at = null;
+        try {
+            for (IGridNode node : grid.getMachineNodes(ControllerBlockEntity.class)) {
+                Place c = placeOf(node);
                 if (c != null && (at == null || before(c, at))) {
                     at = c;
                 }
@@ -134,40 +172,38 @@ public final class Ae2Networks {
         if (name != null) {
             return name;
         }
-        DimensionalCoord at = controllerOf(grid);
+        Place at = controllerOf(grid);
         boolean controller = at != null;
         if (at == null && grid.getPivot() != null) {
-            try {
-                at = grid.getPivot()
-                    .getGridBlock()
-                    .getLocation();
-            } catch (Throwable ignored) {
-                // Named without a place.
-            }
+            at = placeOf(grid.getPivot());
         }
         int nodes = 0;
         try {
-            nodes = grid.getNodes()
-                .size();
+            nodes = grid.size();
         } catch (Throwable ignored) {
             // Named without its size.
         }
         StringBuilder text = new StringBuilder(controller ? "ME network" : "ME network without controller");
         if (at != null) {
             text.append(" · ")
-                .append(dimensionName(at.getDimension()))
+                .append(dimensionName(grid, at.dim()))
                 .append(' ')
-                .append(at.x)
+                .append(
+                    at.pos()
+                        .getX())
                 .append(", ")
-                .append(at.y)
+                .append(
+                    at.pos()
+                        .getY())
                 .append(", ")
-                .append(at.z);
+                .append(
+                    at.pos()
+                        .getZ());
         }
         text.append(" · ")
             .append(nodes)
             .append(nodes == 1 ? " node" : " nodes");
         name = text.toString();
-        // Two networks never share a line.
         String unique = name;
         for (int i = 2; names.containsValue(unique); i++) {
             unique = name + " #" + i;
@@ -176,74 +212,65 @@ public final class Ae2Networks {
         return unique;
     }
 
-    private static boolean before(DimensionalCoord a, DimensionalCoord b) {
-        if (a.getDimension() != b.getDimension()) {
-            return a.getDimension() < b.getDimension();
+    private static boolean before(Place a, Place b) {
+        if (a.dim() != b.dim()) {
+            return a.dim() < b.dim();
         }
-        if (a.x != b.x) {
-            return a.x < b.x;
-        }
-        return a.y != b.y ? a.y < b.y : a.z < b.z;
+        return a.pos()
+            .compareTo(b.pos()) < 0;
     }
 
-    private static String dimensionName(int dim) {
+    private static String dimensionName(IGrid grid, int dim) {
         try {
-            World world = DimensionManager.getWorld(dim);
-            if (world != null) {
-                return world.provider.getDimensionName();
+            IGridNode pivot = grid.getPivot();
+            if (pivot != null && pivot.getLevel() != null && Dims.id(pivot.getLevel()) == dim) {
+                return Dims.name(pivot.getLevel());
             }
         } catch (Throwable ignored) {
             // By its number.
         }
-        return "DIM " + dim;
+        return dim == 0 ? "minecraft:overworld" : dim == -1 ? "minecraft:the_nether" : dim == 1 ? "minecraft:the_end" : "DIM " + dim;
     }
 
     /** A machine the network ticked (an interface, a bus, an assembler...): its kind is the item it is shown as. */
     private static void describeMachine(Node leaf, IGridNode node) {
-        IGridHost host = node.getMachine();
-        Class<?> type = host != null ? host.getClass() : node.getClass();
+        Object owner = node.getOwner();
+        Class<?> type = owner != null ? owner.getClass() : node.getClass();
         leaf.detail = type.getName();
-        IGridBlock block = node.getGridBlock();
-        DimensionalCoord at = block != null ? block.getLocation() : null;
+        Place at = placeOf(node);
         if (at != null) {
             leaf.kind = LocationKind.BLOCK;
-            leaf.dim = at.getDimension();
-            leaf.x = at.x;
-            leaf.y = at.y;
-            leaf.z = at.z;
+            leaf.dim = at.dim();
+            leaf.x = at.pos()
+                .getX();
+            leaf.y = at.pos()
+                .getY();
+            leaf.z = at.pos()
+                .getZ();
         }
-        if (host != null && host.getClass()
-            .getName()
-            .startsWith("appeng.parts.")) {
+        if (owner instanceof AEBasePart part) {
             try {
-                // Parts on one cable are told apart by their side (read by name: parts aren't needed to compile).
-                Object side = host.getClass()
-                    .getMethod("getSide")
-                    .invoke(host);
-                if (side instanceof Enum) {
-                    leaf.label = ((Enum<?>) side).name()
-                        .toLowerCase();
+                if (part.getSide() != null) {
+                    leaf.label = part.getSide()
+                        .getSerializedName();
                 }
             } catch (Throwable ignored) {
                 // Its place is enough.
             }
         }
-        ItemStack stack = null;
+        Item item = null;
         try {
-            stack = block != null ? block.getMachineRepresentation() : null;
+            AEItemKey visual = node.getVisualRepresentation();
+            item = visual != null ? visual.getItem() : null;
         } catch (Throwable ignored) {
             // Named by its class.
         }
-        if (stack != null && stack.getItem() != null) {
-            leaf.itemId = Item.getIdFromItem(stack.getItem());
-            leaf.itemDamage = stack.getItemDamage();
-            try {
-                leaf.name = stack.getDisplayName();
-            } catch (Throwable ignored) {
-                // Named by its class.
-            }
-            // Parts share classes with their kinds (all of AE2's buses are told apart by the item).
-            leaf.typeKey = type.getName() + "|" + leaf.itemId + ":" + leaf.itemDamage;
+        if (item != null) {
+            ResourceLocation id = BuiltInRegistries.ITEM.getKey(item);
+            leaf.item = id.toString();
+            leaf.translationKey = item.getDescriptionId();
+            leaf.name = nameOf(leaf.translationKey, id);
+            leaf.typeKey = type.getName() + "|" + id;
         } else {
             leaf.typeKey = type.getName();
         }
@@ -252,9 +279,34 @@ public final class Ae2Networks {
         }
     }
 
-    /** The network's own work: one of its caches (channels, crafting, storage...). */
-    private static void describeWork(Node leaf, Object cache) {
-        String className = cacheClass(cache);
+    private static String nameOf(String key, ResourceLocation id) {
+        try {
+            if (net.minecraft.locale.Language.getInstance()
+                .has(key)) {
+                return net.minecraft.locale.Language.getInstance()
+                    .getOrDefault(key);
+            }
+        } catch (Throwable ignored) {
+            // By its id.
+        }
+        StringBuilder text = new StringBuilder();
+        for (String word : id.getPath()
+            .split("_")) {
+            if (!word.isEmpty()) {
+                if (text.length() > 0) {
+                    text.append(' ');
+                }
+                text.append(Character.toUpperCase(word.charAt(0)))
+                    .append(word.substring(1));
+            }
+        }
+        return text.toString();
+    }
+
+    /** The network's own work: one of its services (channels, crafting, storage...). */
+    private static void describeWork(Node leaf, Object service) {
+        String className = service.getClass()
+            .getName();
         String simple = className.substring(className.lastIndexOf('.') + 1);
         leaf.typeKey = className;
         leaf.detail = className;
@@ -262,21 +314,8 @@ public final class Ae2Networks {
         leaf.name = name != null ? name : simple;
         leaf.translationKey = "lagfinder.ae2." + simple;
         leaf.instances = 1;
-    }
-
-    /** The class of the cache, through the wrapper older AE2s put around each. */
-    private static String cacheClass(Object cache) {
-        String name = cache.getClass()
-            .getName();
-        if (name.equals("appeng.me.GridCacheWrapper")) {
-            try {
-                return (String) cache.getClass()
-                    .getMethod("getName")
-                    .invoke(cache);
-            } catch (Throwable ignored) {
-                // The wrapper's.
-            }
+        if (!className.startsWith("appeng.")) {
+            leaf.detail = className + " (" + ModResolver.modOf(service.getClass()) + ")";
         }
-        return name;
     }
 }

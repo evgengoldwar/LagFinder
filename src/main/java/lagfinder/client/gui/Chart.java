@@ -2,7 +2,7 @@ package lagfinder.client.gui;
 
 import java.util.Arrays;
 
-import net.minecraft.client.gui.FontRenderer;
+import lagfinder.client.gui.ui.FontRenderer;
 
 import lagfinder.client.Names;
 import lagfinder.client.gui.ui.Theme;

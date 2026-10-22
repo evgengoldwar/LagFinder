@@ -20,7 +20,7 @@ public final class Report {
     private static final int MAGIC = 0x4C46524E; // "LFRN"
     /** 11: the server's own work ({@link Category#SERVER}), which an older reader has no category for. */
     // 13: medians and GregTech activity per line (this fork); 14: entity ids, to follow an entity (upstream).
-    public static final int VERSION = 17;
+    public static final int VERSION = 19;
 
     public ScanMode mode;
     /** What the scan was for; older reports were all lag scans. */
@@ -89,6 +89,8 @@ public final class Report {
 
     /** Ticks (or frames) of the worst second of the scan, -1 when not known (older reports, or under a second). */
     public float lowestSecond = -1;
+
+    public int computerThreads;
 
     /** How long the scan ran without what it took itself (seconds). */
     public float measuredSec() {
@@ -394,6 +396,7 @@ public final class Report {
                 out.writeInt(gcCount[i]);
             }
         }
+        out.writeShort(computerThreads);
         out.flush();
         zip.finish();
     }
@@ -503,6 +506,12 @@ public final class Report {
                 if (!Float.isFinite(report.gcMs[i]) || report.gcMs[i] < 0 || report.gcCount[i] < 0) {
                     throw new IOException("Invalid report GC data");
                 }
+            }
+        }
+        if (version >= 18) {
+            report.computerThreads = in.readShort();
+            if (report.computerThreads < 0) {
+                throw new IOException("Invalid report computer threads");
             }
         }
         if (!Float.isFinite(report.durationSec) || report.durationSec < 0

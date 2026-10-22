@@ -21,7 +21,7 @@ public final class ReportEntry {
     /** What an instance is on its own (an item's name, a chunk), may be null. */
     public String label;
     public String translationKey;
-    public int itemId = -1, itemDamage;
+    public String item;
     public LocationKind kind = LocationKind.NONE;
     public int dim, x, y, z;
     /** For an entity: its id in its world, to follow it where it has gone since; -1 when not known. */
@@ -58,8 +58,7 @@ public final class ReportEntry {
         writeOptional(out, detail);
         writeOptional(out, label);
         writeOptional(out, translationKey);
-        out.writeInt(itemId);
-        out.writeShort(itemDamage);
+        writeOptional(out, item);
         out.writeByte(kind.ordinal());
         if (kind != LocationKind.NONE) {
             out.writeInt(dim);
@@ -123,8 +122,12 @@ public final class ReportEntry {
         entry.detail = readOptional(in);
         entry.label = readOptional(in);
         entry.translationKey = readOptional(in);
-        entry.itemId = in.readInt();
-        entry.itemDamage = in.readShort();
+        if (version >= 19) {
+            entry.item = readOptional(in);
+        } else {
+            in.readInt();
+            in.readShort();
+        }
         entry.kind = LocationKind.values()[ReportInput.index(in.readByte(), LocationKind.values().length)];
         if (entry.kind != LocationKind.NONE) {
             entry.dim = in.readInt();

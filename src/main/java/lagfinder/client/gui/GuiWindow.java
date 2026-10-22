@@ -2,10 +2,9 @@ package lagfinder.client.gui;
 
 import java.util.List;
 
-import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.resources.I18n;
+import lagfinder.client.gui.ui.GuiButton;
+import net.minecraft.client.resources.language.I18n;
 
-import lagfinder.Tags;
 import lagfinder.client.ReportStore;
 import lagfinder.client.gui.ui.Icons;
 import lagfinder.client.gui.ui.ScaledScreen;
@@ -14,7 +13,7 @@ import lagfinder.client.gui.ui.Theme;
 import lagfinder.client.gui.ui.WindowHeader;
 
 /**
- * The mod's main window: its header, a menu of tabs down the left (Scan, Settings, Logs, About) and the tab's content
+ * The mod's main window: its header, a menu of tabs down the left (Scan, Logs, About) and the tab's content
  * on the right. Each tab is a screen of its own, of the same size in the same place; picking another one swaps the
  * screen in place, without sliding in again.
  */
@@ -31,7 +30,6 @@ public abstract class GuiWindow extends ScaledScreen {
     protected enum Tab {
 
         SCAN(Icons.STATS, "lagfinder.tab.scan"),
-        SETTINGS(Icons.GEAR, "lagfinder.tab.settings"),
         LOGS(Icons.LOGS, "lagfinder.tab.logs"),
         ABOUT(Icons.INFO, "lagfinder.tab.about");
 
@@ -45,8 +43,6 @@ public abstract class GuiWindow extends ScaledScreen {
 
         GuiWindow open() {
             switch (this) {
-                case SETTINGS:
-                    return new GuiSettings();
                 case LOGS:
                     return new GuiLogs();
                 case ABOUT:
@@ -70,14 +66,14 @@ public abstract class GuiWindow extends ScaledScreen {
     protected GuiWindow() {
         // The window is never drawn over another of the mod's screens: a tab takes the place of the one before.
         super(false);
-        switched = mc().currentScreen instanceof GuiWindow;
+        switched = mc().screen instanceof GuiWindow;
         for (int i = 0; i < tabLight.length; i++) {
             tabLight[i] = new Smooth(0);
         }
     }
 
     private static net.minecraft.client.Minecraft mc() {
-        return net.minecraft.client.Minecraft.getMinecraft();
+        return net.minecraft.client.Minecraft.getInstance();
     }
 
     /** The tab this screen shows. */
@@ -133,13 +129,13 @@ public abstract class GuiWindow extends ScaledScreen {
     /** Closes the window to the game. */
     protected void closeWindow() {
         GuiLagFinder.forgetReopen();
-        mc.displayGuiScreen(null);
+        mc.setScreen(null);
     }
 
     /** Shows another tab in place of this one. */
     protected void switchTo(Tab tab) {
         if (tab != tab()) {
-            mc.displayGuiScreen(tab.open());
+            mc.setScreen(tab.open());
         }
     }
 
@@ -190,7 +186,7 @@ public abstract class GuiWindow extends ScaledScreen {
             left + WIDTH - WindowHeader.CLOSE_ROOM,
             Icons.STATS,
             "LagFinder",
-            I18n.format("lagfinder.gui.subtitle"),
+            I18n.get("lagfinder.gui.subtitle"),
             Theme.TEXT_MUTED,
             null);
         drawMenu(mouseX, mouseY);
@@ -199,7 +195,7 @@ public abstract class GuiWindow extends ScaledScreen {
         drawOver(mouseX, mouseY);
         Tab hovered = tabAt(mouseX, mouseY);
         if (hovered == Tab.LOGS) {
-            tooltip(I18n.format("lagfinder.tip.logs", savedCount), mouseX, mouseY);
+            tooltip(I18n.get("lagfinder.tip.logs", savedCount), mouseX, mouseY);
         }
     }
 
@@ -233,12 +229,12 @@ public abstract class GuiWindow extends ScaledScreen {
                 room -= countWidth + 3;
             }
             fontRendererObj.drawString(
-                Theme.ellipsize(fontRendererObj, I18n.format(tab.name), room),
+                Theme.ellipsize(fontRendererObj, I18n.get(tab.name), room),
                 x0 + 24,
                 y + (TAB_HEIGHT - 8) / 2,
                 textColor);
         }
-        String version = "v" + Tags.VERSION;
+        String version = "v" + lagfinder.LagFinder.version;
         fontRendererObj
             .drawString(Theme.ellipsize(fontRendererObj, version, MENU - 12), x0 + 8, y1 - 12, Theme.TEXT_MUTED);
     }

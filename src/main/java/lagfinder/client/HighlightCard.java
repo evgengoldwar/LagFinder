@@ -1,11 +1,12 @@
 package lagfinder.client;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.resources.I18n;
-import net.minecraft.item.ItemStack;
+import lagfinder.client.gui.ui.FontRenderer;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.world.item.ItemStack;
 
-import org.lwjgl.opengl.GL11;
+import lagfinder.Dims;
+import lagfinder.client.gui.ui.Gfx;
 
 import lagfinder.client.gui.Draw;
 import lagfinder.client.gui.ui.Icons;
@@ -34,7 +35,7 @@ final class HighlightCard {
     private HighlightCard() {}
 
     static void draw(Minecraft mc, FontRenderer font, int width, int height) {
-        Highlighter.Highlight hovered = mc.currentScreen == null ? Highlighter.INSTANCE.hovered() : null;
+        Highlighter.Highlight hovered = mc.screen == null ? Highlighter.INSTANCE.hovered() : null;
         if (hovered != null && hovered != shown) {
             // Another one: start the pop again.
             if (shown != null) {
@@ -56,12 +57,12 @@ final class HighlightCard {
         // Grows out of the crosshair's side.
         double scale = 0.85 + 0.15 * t;
         int anchorX = right ? x : x + WIDTH;
-        GL11.glPushMatrix();
-        GL11.glTranslated(anchorX + (right ? -8 : 8) * (1 - t), cy, 0);
-        GL11.glScaled(scale, scale, 1);
-        GL11.glTranslated(-anchorX, -cy, 0);
+        Gfx.pose().pushPose();
+        Gfx.pose().translate((float) (anchorX + (right ? -8 : 8) * (1 - t)), cy, 0);
+        Gfx.pose().scale((float) scale, (float) scale, 1);
+        Gfx.pose().translate(-anchorX, -cy, 0);
         drawCard(mc, font, shown, x, y, t);
-        GL11.glPopMatrix();
+        Gfx.pose().popPose();
     }
 
     private static void drawCard(Minecraft mc, FontRenderer font, Highlighter.Highlight highlight, int x0, int y0,
@@ -107,9 +108,8 @@ final class HighlightCard {
         int rightX = x0 + PAD + 2 + half + 4;
         double average = report.perPeriod(entry);
         boolean inFps = report.costsInFps();
-        String avgLabel = I18n
-            .format(report.mode == ScanMode.FPS ? "lagfinder.stat.avg_frame" : "lagfinder.stat.avg_tick");
-        String peakLabel = I18n.format(inFps ? "lagfinder.stat.peak_fps" : "lagfinder.stat.peak");
+        String avgLabel = I18n.get(report.mode == ScanMode.FPS ? "lagfinder.stat.avg_frame" : "lagfinder.stat.avg_tick");
+        String peakLabel = I18n.get(inFps ? "lagfinder.stat.peak_fps" : "lagfinder.stat.peak");
         font.drawString(Theme.ellipsize(font, avgLabel, half - 2), x, y, Theme.TEXT_DISABLED);
         font.drawString(Theme.ellipsize(font, peakLabel, half - 2), rightX, y, Theme.TEXT_DISABLED);
         // A line between them.
@@ -132,8 +132,7 @@ final class HighlightCard {
         int barColor = heat == Theme.TEXT ? color : heat;
         Theme.meter(x, y, x1 - PAD, y + 3, Math.max(share, average > 0 ? 0.01 : 0), barColor);
         y += 6;
-        String shareLabel = I18n
-            .format(report.mode == ScanMode.FPS ? "lagfinder.stat.share_frame" : "lagfinder.stat.share_tick");
+        String shareLabel = I18n.get(report.mode == ScanMode.FPS ? "lagfinder.stat.share_frame" : "lagfinder.stat.share_tick");
         font.drawString(shareLabel, x, y, Theme.TEXT_DISABLED);
         String shareText = share * 100 >= 10 ? String.format("%.0f%%", share * 100)
             : String.format("%.1f%%", share * 100);
@@ -145,7 +144,7 @@ final class HighlightCard {
         int chipX = chip(
             font,
             Icons.SMALL_SPIKE,
-            I18n.format("lagfinder.stat.spikes") + " ×" + entry.spikes,
+            I18n.get("lagfinder.stat.spikes") + " ×" + entry.spikes,
             x,
             y,
             spikeColor);
@@ -153,7 +152,7 @@ final class HighlightCard {
         chip(
             font,
             Icons.SMALL_CLOCK,
-            I18n.format("lagfinder.stat.active") + " " + String.format("%.0f%%", active),
+            I18n.get("lagfinder.stat.active") + " " + String.format("%.0f%%", active),
             chipX + 4,
             y,
             Theme.ACCENT);
@@ -176,11 +175,11 @@ final class HighlightCard {
 
     /** Text half as big again. */
     private static void big(FontRenderer font, String text, int x, int y, int color) {
-        GL11.glPushMatrix();
-        GL11.glTranslatef(x, y, 0);
-        GL11.glScalef(1.5f, 1.5f, 1f);
+        Gfx.pose().pushPose();
+        Gfx.pose().translate(x, y, 0);
+        Gfx.pose().scale(1.5f, 1.5f, 1f);
         font.drawStringWithShadow(text, 0, 0, color);
-        GL11.glPopMatrix();
+        Gfx.pose().popPose();
     }
 
     /** A small rounded chip with an icon and text, its edge in the color. Returns where it ends. */
@@ -236,11 +235,11 @@ final class HighlightCard {
     }
 
     private static String distance(Minecraft mc, Highlighter.Highlight highlight) {
-        if (mc.thePlayer == null || mc.theWorld == null || highlight.dim != mc.theWorld.provider.dimensionId) {
+        if (mc.player == null || mc.level == null || highlight.dim != Dims.id(mc.level)) {
             return null;
         }
-        double dx = highlight.x + 0.5 - mc.thePlayer.posX, dy = highlight.y - mc.thePlayer.posY,
-            dz = highlight.z + 0.5 - mc.thePlayer.posZ;
+        double dx = highlight.x + 0.5 - mc.player.getX(), dy = highlight.y - mc.player.getY(),
+            dz = highlight.z + 0.5 - mc.player.getZ();
         return Math.round(Math.sqrt(dx * dx + dy * dy + dz * dz)) + " m";
     }
 

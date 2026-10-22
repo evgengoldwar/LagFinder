@@ -1,14 +1,14 @@
 package lagfinder.server;
 
-import net.minecraft.block.Block;
-import net.minecraft.entity.Entity;
-import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.core.BlockPos;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.world.Teleporter;
-import net.minecraft.world.World;
-import net.minecraft.world.WorldServer;
-import net.minecraftforge.common.DimensionManager;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.state.BlockState;
 
+import lagfinder.Dims;
 import lagfinder.network.Net;
 
 /**
@@ -27,44 +27,37 @@ final class Teleports {
     private Teleports() {}
 
     /** To the entity of the message where it is now, if it is still in that world, else to the place. */
-    static boolean teleport(EntityPlayerMP player, Net.Teleport message) {
-        // Only a world that is loaded: an entity is in no other.
-        WorldServer world = message.entityId < 0 ? null : DimensionManager.getWorld(message.dim);
-        Entity entity = world == null ? null : world.getEntityByID(message.entityId);
-        if (entity != null && !entity.isDead
-            && entity.getClass()
-                .getName()
-                .equals(message.entityClass)) {
-            return teleport(
-                player,
-                message.dim,
-                (int) Math.floor(entity.posX),
-                (int) Math.floor(entity.posY),
-                (int) Math.floor(entity.posZ));
-        }
-        return teleport(player, message.dim, message.x, message.y, message.z);
-    }
-
-    static boolean teleport(EntityPlayerMP player, int dim, int x, int y, int z) {
-        MinecraftServer server = MinecraftServer.getServer();
-        if (server == null || !DimensionManager.isDimensionRegistered(dim) || !inWorld(x) || !inWorld(z)) {
-            // Nothing measured is out there: no chunks are made that far for a place no report has.
-            return false;
-        }
-        WorldServer world = server.worldServerForDimension(dim);
+    static boolean teleport(ServerPlayer player, Net.Teleport message) {
+        MinecraftServer server = player.getServer();
+        ServerLevel world = Dims.level(server, message.dim());
         if (world == null) {
             return false;
         }
-        int[] spot = freeSpot(world, x, y, z);
-        if (player.ridingEntity != null) {
-            player.mountEntity(null);
+        Entity entity = message.entityId() < 0 ? null : world.getEntity(message.entityId());
+        if (entity != null && !entity.isRemoved()
+            && entity.getClass()
+                .getName()
+                .equals(message.entityClass())) {
+            return teleport(player, world, entity.getBlockX(), entity.getBlockY(), entity.getBlockZ());
         }
-        if (player.dimension != dim) {
-            server.getConfigurationManager()
-                .transferPlayerToDimension(player, dim, new Staying(world));
+        return teleport(player, world, message.x(), message.y(), message.z());
+    }
+
+    private static boolean teleport(ServerPlayer player, ServerLevel world, int x, int y, int z) {
+        if (!inWorld(x) || !inWorld(z)) {
+            return false;
         }
-        player.playerNetServerHandler
-            .setPlayerLocation(spot[0] + 0.5, spot[1], spot[2] + 0.5, player.rotationYaw, player.rotationPitch);
+        BlockPos spot = freeSpot(world, x, y, z);
+        if (player.isPassenger()) {
+            player.stopRiding();
+        }
+        player.teleportTo(
+            world,
+            spot.getX() + 0.5,
+            spot.getY(),
+            spot.getZ() + 0.5,
+            player.getYRot(),
+            player.getXRot());
         player.fallDistance = 0;
         return true;
     }
@@ -74,54 +67,30 @@ final class Teleports {
     }
 
     /** Where to stand: two free blocks over a place near (x, y, z), or right there if there is none. */
-    private static int[] freeSpot(World world, int x, int y, int z) {
-        y = Math.max(1, Math.min(254, y));
+    private static BlockPos freeSpot(Level world, int x, int y, int z) {
+        int bottom = world.getMinBuildHeight() + 1, top = world.getMaxBuildHeight() - 2;
+        y = Math.max(bottom, Math.min(top, y));
         for (int[] offset : AROUND) {
             int sx = x + offset[0], sy = y + offset[1], sz = z + offset[2];
             if (isFree(world, sx, sy, sz) && isFree(world, sx, sy + 1, sz)) {
-                return new int[] { sx, sy, sz };
+                return new BlockPos(sx, sy, sz);
             }
         }
-        for (int sy = y + 2; sy < 255; sy++) {
+        for (int sy = y + 2; sy < top; sy++) {
             if (isFree(world, x, sy, z) && isFree(world, x, sy + 1, z)) {
-                return new int[] { x, sy, z };
+                return new BlockPos(x, sy, z);
             }
         }
-        return new int[] { x, y + 1, z };
+        return new BlockPos(x, y + 1, z);
     }
 
-    private static boolean isFree(World world, int x, int y, int z) {
-        if (y < 0 || y > 255) {
+    private static boolean isFree(Level world, int x, int y, int z) {
+        if (y < world.getMinBuildHeight() || y >= world.getMaxBuildHeight()) {
             return false;
         }
-        Block block = world.getBlock(x, y, z);
-        return !block.getMaterial()
-            .blocksMovement()
-            && !block.getMaterial()
-                .isLiquid();
-    }
-
-    /** Changes the dimension without looking for or making a portal. */
-    private static final class Staying extends Teleporter {
-
-        Staying(WorldServer world) {
-            super(world);
-        }
-
-        @Override
-        public void placeInPortal(Entity entity, double x, double y, double z, float yaw) {}
-
-        @Override
-        public boolean placeInExistingPortal(Entity entity, double x, double y, double z, float yaw) {
-            return true;
-        }
-
-        @Override
-        public boolean makePortal(Entity entity) {
-            return true;
-        }
-
-        @Override
-        public void removeStalePortalLocations(long time) {}
+        BlockPos pos = new BlockPos(x, y, z);
+        BlockState state = world.getBlockState(pos);
+        return !state.blocksMotion() && state.getFluidState()
+            .isEmpty();
     }
 }

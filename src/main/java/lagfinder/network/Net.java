@@ -1,162 +1,138 @@
 package lagfinder.network;
 
-import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
-import java.util.List;
+import java.util.function.Consumer;
 
-import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.neoforged.neoforge.network.registration.HandlerThread;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 
-import cpw.mods.fml.common.network.ByteBufUtils;
-import cpw.mods.fml.common.network.NetworkRegistry;
-import cpw.mods.fml.common.network.simpleimpl.IMessage;
-import cpw.mods.fml.common.network.simpleimpl.IMessageHandler;
-import cpw.mods.fml.common.network.simpleimpl.MessageContext;
-import cpw.mods.fml.common.network.simpleimpl.SimpleNetworkWrapper;
-import cpw.mods.fml.relauncher.Side;
-import io.netty.buffer.ByteBuf;
 import lagfinder.LagFinder;
 import lagfinder.core.LocationKind;
 import lagfinder.core.ReportEntry;
 import lagfinder.core.ReportFiles;
 import lagfinder.core.ScanFocus;
-import lagfinder.server.ServerReports;
 import lagfinder.server.ServerScanner;
 
 /**
- * The mod's channel. The client asks the server to start, cancel or report on a tick scan and to teleport it; the
- * server answers with its state and, at the end of a scan, the report in parts. Servers without the mod never answer,
- * so the client knows it can only scan frames there.
+ * The mod's messages. The client asks the server to start, cancel or report on a tick scan and to teleport it; the
+ * server answers with its state and, at the end of a scan, the report in parts. The channel is optional: a client
+ * joins a server without the mod (and the other way round), it only can't scan it.
  */
 public final class Net {
 
-    /**
-     * The version of the messages: 2 and later servers tell at once that the start of a scan arrived
-     * ({@link Status#QUEUED}) and whether a scan stands paused.
-     */
-    public static final int PROTOCOL = 3;
+    /** The version of the messages. */
+    public static final int PROTOCOL = 1;
     /** Bytes of a report per message: well under the limits of a packet. */
     public static final int PART_SIZE = 30000;
+    private static final int MAX_CLASS_NAME = 256;
+    private static final int MAX_MESSAGE = 256;
 
-    private static SimpleNetworkWrapper channel;
+    /** What the client does with the server's messages; set on the client only. */
+    public static Consumer<Status> onStatus = status -> {};
+    public static Consumer<ReportPart> onReportPart = part -> {};
 
     private Net() {}
 
-    public static void register() {
-        channel = NetworkRegistry.INSTANCE.newSimpleChannel(LagFinder.MODID);
-        channel.registerMessage(StartScan.Handler.class, StartScan.class, 0, Side.SERVER);
-        channel.registerMessage(CancelScan.Handler.class, CancelScan.class, 1, Side.SERVER);
-        channel.registerMessage(Query.Handler.class, Query.class, 2, Side.SERVER);
-        channel.registerMessage(Teleport.Handler.class, Teleport.class, 3, Side.SERVER);
-        channel.registerMessage(Status.Handler.class, Status.class, 4, Side.CLIENT);
-        channel.registerMessage(ReportPart.Handler.class, ReportPart.class, 5, Side.CLIENT);
-        channel.registerMessage(ArchiveRequest.Handler.class, ArchiveRequest.class, 6, Side.SERVER);
-        channel.registerMessage(ArchiveCatalog.Handler.class, ArchiveCatalog.class, 7, Side.CLIENT);
-        channel.registerMessage(ArchivePart.Handler.class, ArchivePart.class, 8, Side.CLIENT);
+    private static ResourceLocation id(String path) {
+        return ResourceLocation.fromNamespaceAndPath(LagFinder.MODID, path);
     }
 
-    public static void sendToServer(IMessage message) {
-        channel.sendToServer(message);
+    public static void register(RegisterPayloadHandlersEvent event) {
+        PayloadRegistrar registrar = event.registrar(String.valueOf(PROTOCOL))
+            .optional()
+            .executesOn(HandlerThread.NETWORK);
+        registrar.playToServer(StartScan.TYPE, StartScan.CODEC, StartScan::handle);
+        registrar.playToServer(CancelScan.TYPE, CancelScan.CODEC, CancelScan::handle);
+        registrar.playToServer(Query.TYPE, Query.CODEC, Query::handle);
+        registrar.playToServer(Teleport.TYPE, Teleport.CODEC, Teleport::handle);
+        registrar.playToClient(Status.TYPE, Status.CODEC, (status, context) -> onStatus.accept(status));
+        registrar.playToClient(ReportPart.TYPE, ReportPart.CODEC, (part, context) -> {
+            if (part.valid()) {
+                onReportPart.accept(part);
+            }
+        });
     }
 
-    public static void sendTo(IMessage message, EntityPlayerMP player) {
-        channel.sendTo(message, player);
+    public static void sendTo(CustomPacketPayload message, ServerPlayer player) {
+        if (player.connection != null && player.connection.hasChannel(message.type())) {
+            PacketDistributor.sendToPlayer(player, message);
+        }
+    }
+
+    private static ServerPlayer player(IPayloadContext context) {
+        return context.player() instanceof ServerPlayer player ? player : null;
     }
 
     /** Asks for a tick scan of the given length, for what it is for. */
-    public static final class StartScan implements IMessage {
+    public record StartScan(int seconds, ScanFocus focus, boolean light) implements CustomPacketPayload {
 
-        public int seconds;
-        public ScanFocus focus = ScanFocus.LAG;
-        /** The client understands being told at once that the start arrived ({@link Status#QUEUED}). */
-        public boolean takesQueued;
-        /** A light scan: one tick in a few is measured (older clients don't send it: a full scan). */
-        public boolean light;
-
-        public StartScan() {}
-
-        public StartScan(int seconds, ScanFocus focus, boolean light) {
-            this.seconds = seconds;
-            this.focus = focus;
-            this.light = light;
-        }
+        public static final Type<StartScan> TYPE = new Type<>(id("start_scan"));
+        public static final StreamCodec<FriendlyByteBuf, StartScan> CODEC = StreamCodec.of((buf, message) -> {
+            buf.writeVarInt(message.seconds);
+            buf.writeByte(message.focus.ordinal());
+            buf.writeBoolean(message.light);
+        }, buf -> new StartScan(buf.readVarInt(), ScanFocus.of(buf.readByte()), buf.readBoolean()));
 
         @Override
-        public void fromBytes(ByteBuf buf) {
-            seconds = buf.readInt();
-            // Clients from before the scans had a focus send only the length.
-            focus = buf.isReadable() ? ScanFocus.of(buf.readByte()) : ScanFocus.LAG;
-            takesQueued = buf.isReadable() && buf.readBoolean();
-            light = buf.isReadable() && buf.readBoolean();
+        public Type<StartScan> type() {
+            return TYPE;
         }
 
-        @Override
-        public void toBytes(ByteBuf buf) {
-            buf.writeInt(seconds);
-            buf.writeByte(focus.ordinal());
-            buf.writeBoolean(true);
-            buf.writeBoolean(light);
-        }
-
-        public static final class Handler implements IMessageHandler<StartScan, IMessage> {
-
-            @Override
-            public IMessage onMessage(StartScan message, MessageContext ctx) {
-                EntityPlayerMP player = ctx.getServerHandler().playerEntity;
-                ServerScanner.INSTANCE.schedule(
-                    () -> ServerScanner.INSTANCE.start(player, message.seconds, message.focus, message.light));
-                if (!message.takesQueued) {
-                    // An older client would read it as a refusal.
-                    return null;
-                }
-                // Told at once that it arrived: the server's tick that takes it up may be long in coming.
-                Status queued = new Status();
-                queued.state = Status.QUEUED;
-                return queued;
+        private static void handle(StartScan message, IPayloadContext context) {
+            ServerPlayer player = player(context);
+            if (player == null) {
+                return;
             }
+            ServerScanner.INSTANCE.schedule(
+                () -> ServerScanner.INSTANCE.start(player, message.seconds, ScanFocus.LAG, message.light));
+            // Told at once that it arrived: the server's tick that takes it up may be long in coming.
+            Status queued = new Status();
+            queued.state = Status.QUEUED;
+            context.reply(queued);
         }
     }
 
-    public static final class CancelScan implements IMessage {
+    public record CancelScan() implements CustomPacketPayload {
+
+        public static final Type<CancelScan> TYPE = new Type<>(id("cancel_scan"));
+        public static final StreamCodec<FriendlyByteBuf, CancelScan> CODEC = StreamCodec.unit(new CancelScan());
 
         @Override
-        public void fromBytes(ByteBuf buf) {}
+        public Type<CancelScan> type() {
+            return TYPE;
+        }
 
-        @Override
-        public void toBytes(ByteBuf buf) {}
-
-        public static final class Handler implements IMessageHandler<CancelScan, IMessage> {
-
-            @Override
-            public IMessage onMessage(CancelScan message, MessageContext ctx) {
-                EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+        private static void handle(CancelScan message, IPayloadContext context) {
+            ServerPlayer player = player(context);
+            if (player != null) {
                 ServerScanner.INSTANCE.schedule(() -> ServerScanner.INSTANCE.cancel(player));
-                return null;
             }
         }
     }
 
     /** Asks for the server's state, sent when the window opens. */
-    public static final class Query implements IMessage {
+    public record Query(int protocol) implements CustomPacketPayload {
 
-        public int protocol = PROTOCOL;
-
-        @Override
-        public void fromBytes(ByteBuf buf) {
-            protocol = buf.readInt();
-        }
+        public static final Type<Query> TYPE = new Type<>(id("query"));
+        public static final StreamCodec<FriendlyByteBuf, Query> CODEC = StreamCodec
+            .of((buf, message) -> buf.writeVarInt(message.protocol), buf -> new Query(buf.readVarInt()));
 
         @Override
-        public void toBytes(ByteBuf buf) {
-            buf.writeInt(protocol);
+        public Type<Query> type() {
+            return TYPE;
         }
 
-        public static final class Handler implements IMessageHandler<Query, IMessage> {
-
-            @Override
-            public IMessage onMessage(Query message, MessageContext ctx) {
-                EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+        private static void handle(Query message, IPayloadContext context) {
+            ServerPlayer player = player(context);
+            if (player != null) {
                 ServerScanner.INSTANCE.schedule(() -> ServerScanner.INSTANCE.sendStatus(player, null));
-                return null;
             }
         }
     }
@@ -165,77 +141,93 @@ public final class Net {
      * Teleports the player to a place in a dimension (an instance from a report). For an entity, to where the entity
      * is now, when it is still there: it has often walked off since the report was made.
      */
-    public static final class Teleport implements IMessage {
+    public record Teleport(int dim, int x, int y, int z, int entityId, String entityClass)
+        implements CustomPacketPayload {
 
-        public int dim, x, y, z;
-        /** The entity to go to, -1 for a place; its class, so that another one given its id isn't taken for it. */
-        public int entityId = -1;
-        public String entityClass = "";
-
-        public Teleport() {}
+        public static final Type<Teleport> TYPE = new Type<>(id("teleport"));
+        public static final StreamCodec<FriendlyByteBuf, Teleport> CODEC = StreamCodec.of((buf, message) -> {
+            buf.writeInt(message.dim);
+            buf.writeInt(message.x);
+            buf.writeInt(message.y);
+            buf.writeInt(message.z);
+            buf.writeInt(message.entityId);
+            buf.writeUtf(message.entityClass, MAX_CLASS_NAME);
+        },
+            buf -> new Teleport(
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readInt(),
+                buf.readUtf(MAX_CLASS_NAME)));
 
         public Teleport(int dim, int x, int y, int z) {
-            this.dim = dim;
-            this.x = x;
-            this.y = y;
-            this.z = z;
-        }
-
-        public Teleport(int dim, int x, int y, int z, int entityId, String entityClass) {
-            this(dim, x, y, z);
-            this.entityId = entityId;
-            this.entityClass = entityClass == null ? "" : entityClass;
+            this(dim, x, y, z, -1, "");
         }
 
         /** To the instance of a report: to the entity itself when it is one. */
         public static Teleport to(ReportEntry entry) {
-            return entry.kind == LocationKind.ENTITY
-                ? new Teleport(entry.dim, entry.x, entry.y, entry.z, entry.entityId, entry.detail)
-                : new Teleport(entry.dim, entry.x, entry.y, entry.z);
-        }
-
-        @Override
-        public void fromBytes(ByteBuf buf) {
-            dim = buf.readInt();
-            x = buf.readInt();
-            y = buf.readInt();
-            z = buf.readInt();
-            // Older clients send only the place.
-            if (buf.isReadable()) {
-                entityId = buf.readInt();
-                entityClass = ByteBufUtils.readUTF8String(buf);
+            if (entry.kind == LocationKind.ENTITY) {
+                String type = entry.detail == null ? "" : entry.detail;
+                return new Teleport(
+                    entry.dim,
+                    entry.x,
+                    entry.y,
+                    entry.z,
+                    entry.entityId,
+                    type.length() > MAX_CLASS_NAME ? "" : type);
             }
+            return new Teleport(entry.dim, entry.x, entry.y, entry.z);
         }
 
         @Override
-        public void toBytes(ByteBuf buf) {
-            buf.writeInt(dim);
-            buf.writeInt(x);
-            buf.writeInt(y);
-            buf.writeInt(z);
-            buf.writeInt(entityId);
-            ByteBufUtils.writeUTF8String(buf, entityClass);
+        public Type<Teleport> type() {
+            return TYPE;
         }
 
-        public static final class Handler implements IMessageHandler<Teleport, IMessage> {
-
-            @Override
-            public IMessage onMessage(Teleport message, MessageContext ctx) {
-                EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+        private static void handle(Teleport message, IPayloadContext context) {
+            ServerPlayer player = player(context);
+            if (player != null) {
                 ServerScanner.INSTANCE.schedule(() -> ServerScanner.INSTANCE.teleport(player, message));
-                return null;
             }
         }
     }
 
     /** The server's state for the player: whether it may scan, and the scan running. */
-    public static final class Status implements IMessage {
+    public static final class Status implements CustomPacketPayload {
 
         /**
          * QUEUED: the start of a scan reached the server, which takes it up on its next tick (sent at once from the
          * network thread: the tick may be long on a server that lags, which is what is being looked for).
          */
         public static final int IDLE = 0, RUNNING = 1, BUSY = 2, SENDING = 3, QUEUED = 4;
+
+        public static final Type<Status> TYPE = new Type<>(id("status"));
+        public static final StreamCodec<FriendlyByteBuf, Status> CODEC = StreamCodec.of((buf, status) -> {
+            buf.writeVarInt(status.protocol);
+            buf.writeBoolean(status.allowed);
+            buf.writeBoolean(status.teleportAllowed);
+            buf.writeByte(status.state);
+            buf.writeFloat(status.progress);
+            buf.writeVarInt(status.secondsLeft);
+            buf.writeUtf(status.message == null ? "" : status.message, MAX_MESSAGE);
+            buf.writeVarInt(status.totalSeconds);
+            buf.writeVarInt(status.maxSeconds);
+            buf.writeBoolean(status.paused);
+        }, buf -> {
+            Status status = new Status();
+            status.protocol = buf.readVarInt();
+            status.allowed = buf.readBoolean();
+            status.teleportAllowed = buf.readBoolean();
+            status.state = buf.readByte();
+            status.progress = buf.readFloat();
+            status.secondsLeft = buf.readVarInt();
+            status.message = buf.readUtf(MAX_MESSAGE);
+            status.totalSeconds = buf.readVarInt();
+            status.maxSeconds = buf.readVarInt();
+            status.paused = buf.readBoolean();
+            return status;
+        });
 
         public int protocol = PROTOCOL;
         public boolean allowed;
@@ -253,80 +245,36 @@ public final class Net {
         public boolean paused;
 
         @Override
-        public void fromBytes(ByteBuf buf) {
-            protocol = buf.readInt();
-            allowed = buf.readBoolean();
-            teleportAllowed = buf.readBoolean();
-            state = buf.readByte();
-            progress = buf.readFloat();
-            secondsLeft = buf.readInt();
-            message = ByteBufUtils.readUTF8String(buf);
-            // Servers from before these were sent leave them out.
-            if (buf.readableBytes() >= 8) {
-                totalSeconds = buf.readInt();
-                maxSeconds = buf.readInt();
-            }
-            paused = buf.isReadable() && buf.readBoolean();
-        }
-
-        @Override
-        public void toBytes(ByteBuf buf) {
-            buf.writeInt(protocol);
-            buf.writeBoolean(allowed);
-            buf.writeBoolean(teleportAllowed);
-            buf.writeByte(state);
-            buf.writeFloat(progress);
-            buf.writeInt(secondsLeft);
-            ByteBufUtils.writeUTF8String(buf, message == null ? "" : message);
-            buf.writeInt(totalSeconds);
-            buf.writeInt(maxSeconds);
-            buf.writeBoolean(paused);
-        }
-
-        public static final class Handler implements IMessageHandler<Status, IMessage> {
-
-            @Override
-            public IMessage onMessage(Status message, MessageContext ctx) {
-                LagFinder.proxy.onStatus(message);
-                return null;
-            }
+        public Type<Status> type() {
+            return TYPE;
         }
     }
 
     /** A part of a finished report (gzipped), sent over several messages. */
-    public static final class ReportPart implements IMessage {
+    public static final class ReportPart implements CustomPacketPayload {
 
-        public int id, index, total;
-        public byte[] data;
+        public static final Type<ReportPart> TYPE = new Type<>(id("report_part"));
+        public static final StreamCodec<FriendlyByteBuf, ReportPart> CODEC = StreamCodec.of((buf, part) -> {
+            buf.writeInt(part.id);
+            buf.writeInt(part.index);
+            buf.writeInt(part.total);
+            buf.writeByteArray(part.data);
+        }, buf -> {
+            int id = buf.readInt();
+            int index = buf.readInt();
+            int total = buf.readInt();
+            byte[] data = buf.readByteArray(PART_SIZE);
+            return new ReportPart(id, index, total, data);
+        });
 
-        public ReportPart() {}
+        public final int id, index, total;
+        public final byte[] data;
 
         public ReportPart(int id, int index, int total, byte[] data) {
             this.id = id;
             this.index = index;
             this.total = total;
             this.data = data;
-        }
-
-        @Override
-        public void fromBytes(ByteBuf buf) {
-            if (buf.readableBytes() < 16 || buf.readableBytes() > 16 + PART_SIZE) {
-                return;
-            }
-            id = buf.readInt();
-            index = buf.readInt();
-            total = buf.readInt();
-            int length = buf.readInt();
-            if (total < 1 || total > (ReportFiles.MAX_BYTES + PART_SIZE - 1) / PART_SIZE
-                || index < 0
-                || index >= total
-                || length < 1
-                || length > PART_SIZE
-                || length != buf.readableBytes()) {
-                return;
-            }
-            data = new byte[length];
-            buf.readBytes(data);
         }
 
         public boolean valid() {
@@ -339,199 +287,8 @@ public final class Net {
         }
 
         @Override
-        public void toBytes(ByteBuf buf) {
-            buf.writeInt(id);
-            buf.writeInt(index);
-            buf.writeInt(total);
-            buf.writeInt(data.length);
-            buf.writeBytes(data);
-        }
-
-        public static final class Handler implements IMessageHandler<ReportPart, IMessage> {
-
-            @Override
-            public IMessage onMessage(ReportPart message, MessageContext ctx) {
-                LagFinder.proxy.onReportPart(message);
-                return null;
-            }
-        }
-    }
-
-    public static final class ArchiveRequest implements IMessage {
-
-        public static final int LIST = 0, OPEN = 1;
-        public int id, action;
-        public String name = "";
-        public boolean valid;
-
-        public ArchiveRequest() {}
-
-        public ArchiveRequest(int id, int action, String name) {
-            this.id = id;
-            this.action = action;
-            this.name = name;
-            this.valid = true;
-        }
-
-        @Override
-        public void fromBytes(ByteBuf buf) {
-            if (buf.readableBytes() < 6 || buf.readableBytes() > 6 + ReportFiles.MAX_NAME) {
-                return;
-            }
-            id = buf.readInt();
-            action = buf.readUnsignedByte();
-            name = readName(buf);
-            valid = id > 0 && !buf.isReadable()
-                && (action == LIST && name.isEmpty() || action == OPEN && ReportFiles.describe(name, 1) != null);
-        }
-
-        @Override
-        public void toBytes(ByteBuf buf) {
-            buf.writeInt(id);
-            buf.writeByte(action);
-            writeName(buf, name);
-        }
-
-        public static final class Handler implements IMessageHandler<ArchiveRequest, IMessage> {
-
-            @Override
-            public IMessage onMessage(ArchiveRequest message, MessageContext ctx) {
-                if (!message.valid) {
-                    return null;
-                }
-                EntityPlayerMP player = ctx.getServerHandler().playerEntity;
-                if (!ServerReports.INSTANCE.enqueue(player, message)) {
-                    return new ArchiveCatalog(message.id, ArchiveCatalog.BUSY, new ArrayList<>());
-                }
-                return null;
-            }
-        }
-    }
-
-    private static String readName(ByteBuf buf) {
-        int length = buf.readUnsignedByte();
-        if (length > ReportFiles.MAX_NAME || length > buf.readableBytes()) {
-            throw new IllegalArgumentException("Invalid archive filename length");
-        }
-        byte[] bytes = new byte[length];
-        buf.readBytes(bytes);
-        for (byte value : bytes) {
-            if (value < 32 || value > 126) {
-                throw new IllegalArgumentException("Invalid archive filename");
-            }
-        }
-        return new String(bytes, StandardCharsets.US_ASCII);
-    }
-
-    private static void writeName(ByteBuf buf, String name) {
-        byte[] bytes = name.getBytes(StandardCharsets.US_ASCII);
-        if (bytes.length > ReportFiles.MAX_NAME) {
-            throw new IllegalArgumentException("Archive filename is too long");
-        }
-        buf.writeByte(bytes.length);
-        buf.writeBytes(bytes);
-    }
-
-    public static final class ArchiveCatalog implements IMessage {
-
-        public static final int OK = 0, DENIED = 1, FAILED = 2, BUSY = 3;
-        public int id, status;
-        public final List<ReportFiles.Saved> saved = new ArrayList<>();
-        public boolean valid;
-
-        public ArchiveCatalog() {}
-
-        public ArchiveCatalog(int id, int status, List<ReportFiles.Saved> saved) {
-            this.id = id;
-            this.status = status;
-            this.saved.addAll(saved);
-            valid = true;
-        }
-
-        @Override
-        public void fromBytes(ByteBuf buf) {
-            if (buf.readableBytes() < 6 || buf.readableBytes() > 6 + ReportFiles.KEEP * (17 + ReportFiles.MAX_NAME)) {
-                return;
-            }
-            id = buf.readInt();
-            status = buf.readUnsignedByte();
-            int count = buf.readUnsignedByte();
-            if (id < 1 || status > BUSY || count > ReportFiles.KEEP || status != OK && count != 0) {
-                return;
-            }
-            for (int i = 0; i < count; i++) {
-                String name = readName(buf);
-                if (buf.readableBytes() < 16) {
-                    saved.clear();
-                    return;
-                }
-                long time = buf.readLong();
-                ReportFiles.Saved entry = ReportFiles.describe(name, buf.readLong(), time);
-                if (entry == null || entry.side != lagfinder.core.ScanSide.SERVER) {
-                    saved.clear();
-                    return;
-                }
-                saved.add(entry);
-            }
-            valid = !buf.isReadable();
-        }
-
-        @Override
-        public void toBytes(ByteBuf buf) {
-            if (saved.size() > ReportFiles.KEEP) {
-                throw new IllegalArgumentException("Archive catalog is too large");
-            }
-            buf.writeInt(id);
-            buf.writeByte(status);
-            buf.writeByte(saved.size());
-            for (ReportFiles.Saved entry : saved) {
-                writeName(buf, entry.name);
-                buf.writeLong(entry.time);
-                buf.writeLong(entry.size);
-            }
-        }
-
-        public static final class Handler implements IMessageHandler<ArchiveCatalog, IMessage> {
-
-            @Override
-            public IMessage onMessage(ArchiveCatalog message, MessageContext ctx) {
-                if (message.valid) {
-                    LagFinder.proxy.onArchiveCatalog(message);
-                }
-                return null;
-            }
-        }
-    }
-
-    public static final class ArchivePart implements IMessage {
-
-        public ReportPart part = new ReportPart();
-
-        public ArchivePart() {}
-
-        public ArchivePart(int id, int index, int total, byte[] data) {
-            part = new ReportPart(id, index, total, data);
-        }
-
-        @Override
-        public void fromBytes(ByteBuf buf) {
-            part.fromBytes(buf);
-        }
-
-        @Override
-        public void toBytes(ByteBuf buf) {
-            part.toBytes(buf);
-        }
-
-        public static final class Handler implements IMessageHandler<ArchivePart, IMessage> {
-
-            @Override
-            public IMessage onMessage(ArchivePart message, MessageContext ctx) {
-                if (message.part.valid()) {
-                    LagFinder.proxy.onArchivePart(message);
-                }
-                return null;
-            }
+        public Type<ReportPart> type() {
+            return TYPE;
         }
     }
 }

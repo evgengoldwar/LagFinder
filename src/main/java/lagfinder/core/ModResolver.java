@@ -1,55 +1,58 @@
 package lagfinder.core;
 
-import java.io.File;
-import java.net.URL;
-import java.net.URLDecoder;
-import java.security.CodeSource;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-import net.minecraft.block.Block;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.block.Block;
+import net.neoforged.fml.ModList;
+import net.neoforged.neoforgespi.language.IModInfo;
 
-import cpw.mods.fml.common.Loader;
-import cpw.mods.fml.common.ModContainer;
-import cpw.mods.fml.common.registry.GameRegistry;
 import lagfinder.LagFinder;
 
 /**
- * Tells which mod a class, a block or a mod id belongs to. Classes go by the package of each mod's main class (the
- * most precise: one jar may hold several mods), then by the jar they were loaded from.
+ * Tells which mod a class, a block or a mod id belongs to. Classes go by the module they were loaded in: each mod's
+ * jar is a module of its own, named after its first mod.
  */
 public final class ModResolver {
 
     public static final String MINECRAFT = "Minecraft";
-    public static final String FORGE = "Forge";
+    public static final String FORGE = "NeoForge";
     public static final String JAVA = "Java";
     /** Libraries bundled with the game (Netty, Guava, LWJGL...): no mod's code. */
     public static final String LIBRARIES = "Libraries";
 
     private static final String[] JAVA_PACKAGES = { "java.", "javax.", "sun.", "jdk.", "com.sun." };
     private static final String[] LIBRARY_PACKAGES = { "com.google.", "io.netty.", "org.lwjgl.", "org.apache.",
-        "it.unimi.", "gnu.trove.", "com.mojang.", "paulscode.", "org.objectweb.", "org.spongepowered.",
-        "net.minecraft.launchwrapper.", "kotlin.", "scala.", "org.slf4j.", "com.typesafe." };
+        "it.unimi.", "com.mojang.", "org.objectweb.", "org.spongepowered.", "kotlin.", "scala.", "org.slf4j.",
+        "cpw.mods.", "com.llamalad7." };
 
     private static final Map<Class<?>, String> CLASSES = new ConcurrentHashMap<>();
     private static final Map<String, String> CLASS_NAMES = new ConcurrentHashMap<>();
-    private static volatile List<String[]> packages;
-    private static volatile Map<String, String> sources;
+    private static volatile Map<String, String> modules;
 
     private ModResolver() {}
 
-    /** The mod's name for a mod id ("gregtech" is "GregTech"). */
+    /** The mod's name for a mod id ("mekanism" is "Mekanism"). */
     public static String nameOfModId(String modId) {
         if (modId == null || modId.isEmpty() || "minecraft".equals(modId)) {
             return MINECRAFT;
         }
-        ModContainer container = Loader.instance()
-            .getIndexedModList()
-            .get(modId);
-        return container != null ? container.getName() : modId;
+        if ("neoforge".equals(modId)) {
+            return FORGE;
+        }
+        try {
+            return ModList.get()
+                .getModContainerById(modId)
+                .map(
+                    container -> container.getModInfo()
+                        .getDisplayName())
+                .orElse(modId);
+        } catch (Throwable t) {
+            return modId;
+        }
     }
 
     /** The mod that registered the block, or null if it isn't known. */
@@ -58,8 +61,8 @@ public final class ModResolver {
             return null;
         }
         try {
-            GameRegistry.UniqueIdentifier id = GameRegistry.findUniqueIdentifierFor(block);
-            return id == null ? null : nameOfModId(id.modId);
+            ResourceLocation id = BuiltInRegistries.BLOCK.getKey(block);
+            return id == null ? null : nameOfModId(id.getNamespace());
         } catch (Throwable t) {
             return null;
         }
@@ -77,37 +80,30 @@ public final class ModResolver {
 
     private static String find(Class<?> type) {
         String name = type.getName();
-        if (name.startsWith("net.minecraft.")) {
+        if (name.startsWith("net.minecraft.") || name.startsWith("com.mojang.")) {
             return MINECRAFT;
         }
-        if (name.startsWith("net.minecraftforge.") || name.startsWith("cpw.mods.fml.")) {
+        if (name.startsWith("net.neoforged.")) {
             return FORGE;
         }
-        String best = null;
-        int bestLength = -1;
-        for (String[] entry : packages()) {
-            String prefix = entry[0];
-            if (name.startsWith(prefix) && prefix.length() > bestLength) {
-                best = entry[1];
-                bestLength = prefix.length();
-            }
+        if (name.startsWith("lagfinder.")) {
+            return LagFinder.NAME;
         }
-        if (best != null) {
-            return best;
-        }
-        String source = sourceOf(type);
-        if (source != null) {
-            String mod = sources().get(source);
+        try {
+            Module module = type.getModule();
+            String mod = module != null && module.isNamed() ? modules().get(module.getName()) : null;
             if (mod != null) {
                 return mod;
             }
+        } catch (Throwable ignored) {
+            // Not in a mod's module.
         }
         return Describer.UNKNOWN_MOD;
     }
 
     /**
-     * The mod a class comes from, by its name only (a frame of a sampled stack): by package, then by the jar its file
-     * is in. Never loads the class, so it is safe on any thread.
+     * The mod a class comes from, by its name only (a frame of a sampled stack): by package. Never loads the class, so
+     * it is safe on any thread.
      */
     public static String modOfClassName(String name) {
         String mod = CLASS_NAMES.get(name);
@@ -119,7 +115,6 @@ public final class ModResolver {
     }
 
     private static String findByName(String name) {
-        // Lambdas and generated classes ("Foo$$Lambda$12/0x...") belong to the class they were made for.
         int generated = name.indexOf("$$");
         if (generated > 0) {
             name = name.substring(0, generated);
@@ -129,10 +124,10 @@ public final class ModResolver {
                 return JAVA;
             }
         }
-        if (name.startsWith("net.minecraft.") && !name.startsWith("net.minecraft.launchwrapper.")) {
+        if (name.startsWith("net.minecraft.")) {
             return MINECRAFT;
         }
-        if (name.startsWith("net.minecraftforge.") || name.startsWith("cpw.mods.fml.")) {
+        if (name.startsWith("net.neoforged.")) {
             return FORGE;
         }
         if (name.startsWith("lagfinder.")) {
@@ -143,121 +138,30 @@ public final class ModResolver {
                 return LIBRARIES;
             }
         }
-        String best = null;
-        int bestLength = -1;
-        for (String[] entry : packages()) {
-            String prefix = entry[0];
-            if (name.startsWith(prefix) && prefix.length() > bestLength) {
-                best = entry[1];
-                bestLength = prefix.length();
-            }
-        }
-        if (best != null) {
-            return best;
-        }
-        try {
-            int inner = name.indexOf('$');
-            String file = (inner > 0 ? name.substring(0, inner) : name).replace('.', '/') + ".class";
-            ClassLoader loader = ModResolver.class.getClassLoader();
-            String source = pathOf(loader == null ? null : loader.getResource(file));
-            String mod = source == null ? null : sources().get(source);
-            if (mod != null) {
-                return mod;
-            }
-        } catch (Throwable ignored) {
-            // Not found where mods are: unknown.
-        }
         return Describer.UNKNOWN_MOD;
     }
 
-    /** Package prefixes ("gregtech.") of each mod's main class, and its parent package when that is precise enough. */
-    private static List<String[]> packages() {
-        List<String[]> list = packages;
-        if (list != null) {
-            return list;
-        }
-        list = new ArrayList<>();
-        for (ModContainer container : Loader.instance()
-            .getActiveModList()) {
-            Object mod = container.getMod();
-            if (mod == null || mod.getClass()
-                .getPackage() == null) {
-                continue;
-            }
-            String pkg = mod.getClass()
-                .getPackage()
-                .getName();
-            if (pkg.startsWith("net.minecraft") || pkg.startsWith("cpw.mods.fml")) {
-                continue;
-            }
-            list.add(new String[] { pkg + ".", container.getName() });
-            int dot = pkg.lastIndexOf('.');
-            if (dot > 0) {
-                String parent = pkg.substring(0, dot);
-                if (count(parent, '.') >= 2) {
-                    list.add(new String[] { parent + ".", container.getName() });
-                }
-            }
-        }
-        packages = list;
-        return list;
-    }
-
-    private static Map<String, String> sources() {
-        Map<String, String> map = sources;
+    /** Mods' names by the module their jar is loaded as. */
+    private static Map<String, String> modules() {
+        Map<String, String> map = modules;
         if (map != null) {
             return map;
         }
         map = new HashMap<>();
-        for (ModContainer container : Loader.instance()
-            .getActiveModList()) {
-            File source = container.getSource();
-            if (source != null && !map.containsKey(source.getAbsolutePath())) {
-                map.put(source.getAbsolutePath(), container.getName());
+        for (IModInfo mod : ModList.get()
+            .getMods()) {
+            try {
+                String module = mod.getOwningFile()
+                    .moduleName();
+                if (module != null && !map.containsKey(module)) {
+                    map.put(module, mod.getDisplayName());
+                }
+            } catch (Throwable ignored) {
+                // Left out.
             }
+            map.putIfAbsent(mod.getModId(), mod.getDisplayName());
         }
-        sources = map;
+        modules = map;
         return map;
-    }
-
-    /** The jar or folder the class was loaded from, or null. */
-    private static String sourceOf(Class<?> type) {
-        try {
-            CodeSource code = type.getProtectionDomain()
-                .getCodeSource();
-            return pathOf(code == null ? null : code.getLocation());
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    /** The jar or folder a URL of a class (its code source, or its file in a jar) points into, or null. */
-    private static String pathOf(URL location) {
-        try {
-            if (location == null) {
-                return null;
-            }
-            String path = location.getPath();
-            if (path.startsWith("file:")) {
-                path = path.substring(5);
-            }
-            int bang = path.indexOf("!/");
-            if (bang >= 0) {
-                path = path.substring(0, bang);
-            }
-            return new File(URLDecoder.decode(path, "UTF-8")).getAbsolutePath();
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private static int count(String text, char c) {
-        int n = 0;
-        for (int i = 0; i < text.length(); i++) {
-            if (text.charAt(i) == c) {
-                n++;
-            }
-        }
-        return n;
     }
 }

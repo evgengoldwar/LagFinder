@@ -7,16 +7,16 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
-import net.minecraft.block.Block;
-import net.minecraft.tileentity.TileEntity;
-import net.minecraft.world.World;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 import lagfinder.Config;
+import lagfinder.Dims;
 import lagfinder.LagFinder;
-import lagfinder.compat.EnderIoConduits;
-import lagfinder.compat.GregTechPipes;
 
 /**
  * A running scan: the hooks in the game hand it the time each measured thing took, and the side running it marks
@@ -53,6 +53,14 @@ public final class ProfileSession {
             && session.measuring
             && session.mode == ScanMode.TPS
             && session.thread == Thread.currentThread()) {
+            return session;
+        }
+        return null;
+    }
+
+    public static ProfileSession serverFromAnyThread() {
+        ProfileSession session = server;
+        if (session != null && session.timesThings && session.mode == ScanMode.TPS && !session.closed) {
             return session;
         }
         return null;
@@ -101,10 +109,11 @@ public final class ProfileSession {
     private final Node[] roots = new Node[Category.values().length];
     @SuppressWarnings("unchecked")
     private final IdentityHashMap<Object, Node>[] leaves = new IdentityHashMap[Category.values().length];
+    private final IdentityHashMap<Node, long[]> computerStats = new IdentityHashMap<>();
     /** Block ticks by world, block and chunk. */
-    private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> blockTicks = new IdentityHashMap<>();
-    private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> lightAt = new IdentityHashMap<>();
-    private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> neighborsAt = new IdentityHashMap<>();
+    private final Map<Level, IdentityHashMap<Object, HashMap<Long, Node>>> blockTicks = new IdentityHashMap<>();
+    private final Map<Level, IdentityHashMap<Object, HashMap<Long, Node>>> lightAt = new IdentityHashMap<>();
+    private final Map<Level, IdentityHashMap<Object, HashMap<Long, Node>>> neighborsAt = new IdentityHashMap<>();
     private final Map<Long, WorldTask.Key> worldTaskKeys = new HashMap<>();
     public static final int SPAN_LIGHT = 0, SPAN_PATH = 1;
     private final int[] spanDepth = new int[2];
@@ -116,15 +125,11 @@ public final class ProfileSession {
      * Tile entities by world and block: one reloaded with its chunk is a new object at the same place, and is still
      * counted as the same thing.
      */
-    private final Map<World, HashMap<Long, Node>> tilesAt = new IdentityHashMap<>();
+    private final Map<Level, HashMap<Long, Node>> tilesAt = new IdentityHashMap<>();
     /** What AE2 networks ticked, by network: their machines and their own work. */
     private final Map<Object, IdentityHashMap<Object, Node>> networks = new IdentityHashMap<>();
-    /** GregTech covers that worked, by the tile they are on and its side. */
-    private final Map<TileEntity, Node[]> covers = new IdentityHashMap<>();
-    public static final int PIPE_GT_TICK = 0, PIPE_GT_ROUTE = 1, PIPE_GT_ENERGY = 2, PIPE_EIO_NETWORK = 3,
-        PIPE_EIO_CONDUIT = 4, PIPE_AE2 = 5;
+    public static final int PIPE_AE2 = 5;
     private final IdentityHashMap<Object, Node> pipeNetworks = new IdentityHashMap<>();
-    private final Map<TileEntity, GregTechPipes.Network> gtNetworks = new IdentityHashMap<>();
     /**
      * Time measured inside the thing being measured now (an event a tile entity posts, the AE2 networks an event
      * handler ticks), left out of its own time: everything is counted once, where its own code runs.
@@ -426,7 +431,7 @@ public final class ProfileSession {
     }
 
     /** As {@link #record(Category, Object, long, long)}, for a tile entity's update. */
-    public void recordTile(TileEntity tile, long start, long outer) {
+    public void recordTile(BlockEntity tile, long start, long outer) {
         if (closed) {
             return;
         }
@@ -457,8 +462,8 @@ public final class ProfileSession {
     }
 
     /** The line of the tile entity's block: the one already there when it is the same kind of tile, or a new one. */
-    private Node tileAt(TileEntity tile) {
-        World world = tile.getWorldObj();
+    private Node tileAt(BlockEntity tile) {
+        Level world = tile.getLevel();
         HashMap<Long, Node> byPlace = null;
         Long place = null;
         if (world != null) {
@@ -467,8 +472,8 @@ public final class ProfileSession {
                 byPlace = new HashMap<>();
                 tilesAt.put(world, byPlace);
             }
-            place = ((long) tile.xCoord & 0x3FFFFFFL) << 38 | ((long) tile.zCoord & 0x3FFFFFFL) << 12
-                | (tile.yCoord & 0xFFFL);
+            place = tile.getBlockPos()
+                .asLong();
             Node known = byPlace.get(place);
             if (known != null && known.keyClass == tile.getClass()) {
                 return known;
@@ -511,52 +516,6 @@ public final class ProfileSession {
         leave(start, end, outer);
     }
 
-    /**
-     * A GregTech cover on {@code side} (0-5) of {@code tile} that was {@link #enter entered} at {@code start} finished
-     * its work: counted per block and side, out of the time of the tile it is on.
-     */
-    public void recordCover(TileEntity tile, int side, Object cover, long start, long outer) {
-        if (closed) {
-            return;
-        }
-        long end = System.nanoTime();
-        long nanos = ownTime(start, end);
-        if (timesThings && tile != null && cover != null && side >= 0 && side < 6) {
-            Node[] sides = covers.get(tile);
-            if (sides == null) {
-                sides = new Node[6];
-                covers.put(tile, sides);
-            }
-            Node node = sides[side];
-            if (node == null || node.key != cover) {
-                // A new cover, or the one on this side was swapped for another.
-                node = new Node(Node.INSTANCE, Category.COVERS, cover);
-                node.live = tile;
-                node.coverSide = side;
-                sides[side] = node;
-                pending.add(node);
-            }
-            node.add(nanos, 1, this);
-            hits[Category.COVERS.ordinal()]++;
-        }
-        leave(start, end, outer);
-    }
-
-    public void recordPipe(int part, Object key, Object live, long start, long outer) {
-        if (closed) {
-            return;
-        }
-        long end = System.nanoTime();
-        long nanos = ownTime(start, end);
-        if (timesThings && key != null) {
-            Object network = pipeNetwork(part, key);
-            if (network != null) {
-                addToNetwork(network, part >= PIPE_EIO_NETWORK ? PIPE_EIO_NETWORK : PIPE_GT_TICK, nanos);
-            }
-        }
-        pass(end, outer);
-    }
-
     private void addToNetwork(Object network, int family, long nanos) {
         Node node = pipeNetworks.get(network);
         if (node == null) {
@@ -568,31 +527,6 @@ public final class ProfileSession {
         }
         node.add(nanos, 1, this);
         hits[Category.PIPE_NETWORKS.ordinal()]++;
-    }
-
-    public void recordPipeSide(TileEntity pipe, int side, long start, long outer) {
-        recordPipe(PIPE_GT_ENERGY, pipe, null, start, outer);
-    }
-
-    private Object pipeNetwork(int part, Object key) {
-        try {
-            switch (part) {
-                case PIPE_EIO_NETWORK:
-                    return key;
-                case PIPE_EIO_CONDUIT:
-                    return EnderIoConduits.networkOf(key);
-                default:
-                    return key instanceof TileEntity ? GregTechPipes.networkOf((TileEntity) key, gtNetworks) : null;
-            }
-        } catch (Throwable t) {
-            return null;
-        }
-    }
-
-    private void pass(long end, long outer) {
-        long now = System.nanoTime();
-        nestedNanos = outer + nestedNanos + (now - end);
-        periodOverhead += now - end + 2 * timerNanos;
     }
 
     /** Time the thing (a tile entity, an entity, a listener, a world) took just now. */
@@ -611,13 +545,64 @@ public final class ProfileSession {
         hits[category.ordinal()]++;
     }
 
+    void recordComputer(Object host, long runNanos, long waitNanos, long syncNanos) {
+        if (!timesThings || !measuring || closed) {
+            return;
+        }
+        if (runNanos > 0) {
+            record(Category.OC_THREAD, host, runNanos);
+        }
+        Node node = leaves[Category.OC_THREAD.ordinal()].get(host);
+        if (node == null) {
+            return;
+        }
+        long[] stats = computerStats.get(node);
+        if (stats == null) {
+            stats = new long[5];
+            computerStats.put(node, stats);
+        }
+        if (runNanos > 0) {
+            stats[0]++;
+            stats[1] += waitNanos;
+            stats[2] = Math.max(stats[2], waitNanos);
+        }
+        if (syncNanos > 0) {
+            stats[3]++;
+            stats[4] += syncNanos;
+        }
+    }
+
+    private void labelComputers() {
+        for (Map.Entry<Node, long[]> entry : computerStats.entrySet()) {
+            long[] stats = entry.getValue();
+            StringBuilder label = new StringBuilder();
+            if (stats[0] > 0) {
+                label.append(
+                    String.format(
+                        Locale.ROOT,
+                        "queue %.2f ms avg, %.1f ms max",
+                        stats[1] / (double) stats[0] / 1e6,
+                        stats[2] / 1e6));
+            }
+            if (stats[3] > 0) {
+                if (label.length() > 0) {
+                    label.append(" · ");
+                }
+                label.append(
+                    String
+                        .format(Locale.ROOT, "%d sync calls, %.1f ms on the server thread", stats[3], stats[4] / 1e6));
+            }
+            entry.getKey().label = label.length() > 0 ? label.toString() : null;
+        }
+    }
+
     /** A block's tick {@link #enter entered} at {@code start} ended: its own time is counted per block and chunk. */
-    public void recordBlockTick(World world, Block block, int x, int y, int z, long start, long outer) {
+    public void recordBlockTick(Level world, Object block, BlockPos pos, long start, long outer) {
         if (closed) {
             return;
         }
         long end = System.nanoTime();
-        recordBlockTick(world, block, x, y, z, ownTime(start, end));
+        recordBlockTick(world, block, pos.getX(), pos.getY(), pos.getZ(), ownTime(start, end));
         leave(start, end, outer);
     }
 
@@ -625,11 +610,11 @@ public final class ProfileSession {
      * Time a block's tick took, counted per block and chunk; the first block that ticked in the chunk is where it is
      * shown and teleported to, so its place agrees with the chunk named.
      */
-    public void recordBlockTick(World world, Block block, int x, int y, int z, long nanos) {
+    public void recordBlockTick(Level world, Object block, int x, int y, int z, long nanos) {
         recordAt(blockTicks, Category.BLOCK_TICKS, world, block, x, y, z, nanos);
     }
 
-    public void recordNeighborUpdate(World world, Block block, int x, int y, int z, long start, long outer) {
+    public void recordNeighborUpdate(Level world, Object block, int x, int y, int z, long start, long outer) {
         if (closed) {
             return;
         }
@@ -638,15 +623,15 @@ public final class ProfileSession {
         leave(start, end, outer);
     }
 
-    public void recordTask(World world, WorldTask task, long start, long outer) {
+    public void recordTask(Level world, WorldTask task, long start, long outer) {
         if (closed) {
             return;
         }
         record(task.category, worldTask(world, task), start, outer);
     }
 
-    private WorldTask.Key worldTask(World world, WorldTask task) {
-        int dim = world.provider.dimensionId;
+    private WorldTask.Key worldTask(Level world, WorldTask task) {
+        int dim = Dims.id(world);
         long id = (long) dim << 8 | task.ordinal();
         WorldTask.Key key = worldTaskKeys.get(id);
         if (key == null) {
@@ -673,7 +658,7 @@ public final class ProfileSession {
         return --spanDepth[span] == 0 && !closed;
     }
 
-    public void spanEndLight(World world, Object type, int x, int y, int z) {
+    public void spanEndLight(Level world, Object type, int x, int y, int z) {
         if (!spanEnds(SPAN_LIGHT)) {
             return;
         }
@@ -700,8 +685,8 @@ public final class ProfileSession {
         spanDepth[SPAN_PATH] = 0;
     }
 
-    private void recordAt(Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> places, Category category,
-        World world, Object key, int x, int y, int z, long nanos) {
+    private void recordAt(Map<Level, IdentityHashMap<Object, HashMap<Long, Node>>> places, Category category,
+        Level world, Object key, int x, int y, int z, long nanos) {
         if (!timesThings || world == null || key == null) {
             return;
         }
@@ -736,12 +721,12 @@ public final class ProfileSession {
      * measured outside any thing when the world started, -1 for unknown), the world counts as one thing measured,
      * the things in it no more: what is left of the tick is the server's own work.
      */
-    public void recordWorld(World world, long nanos, long nestedBefore) {
+    public void recordWorld(Level world, long nanos, long nestedBefore) {
         if (closed || !measuring) {
             return;
         }
         if (timesThings) {
-            int dim = world.provider.dimensionId;
+            int dim = Dims.id(world);
             Node node = worlds.get(dim);
             if (node == null) {
                 node = new Node(Node.TYPE, Category.WORLDS, world);
@@ -797,6 +782,9 @@ public final class ProfileSession {
     public void endPeriod(long start, long nanos) {
         if (sampler != null) {
             sampler.setActive(false);
+        }
+        if (mode == ScanMode.TPS) {
+            ComputerWork.drain(this);
         }
         resolvePending();
         // In the scan's time: the pauses before it left out.
@@ -937,34 +925,12 @@ public final class ProfileSession {
                     it.remove();
                 }
             }
-            // Covers of unloaded or broken blocks: their lines keep what was measured and where.
-            for (Iterator<Map.Entry<TileEntity, Node[]>> it = covers.entrySet()
-                .iterator(); it.hasNext();) {
-                Map.Entry<TileEntity, Node[]> entry = it.next();
-                if (describer.isGone(entry.getKey())) {
-                    for (Node node : entry.getValue()) {
-                        if (node != null && node.resolved) {
-                            node.key = null;
-                            node.live = null;
-                        }
-                    }
-                    it.remove();
-                }
-            }
-            for (Iterator<Map.Entry<TileEntity, GregTechPipes.Network>> it = gtNetworks.entrySet()
-                .iterator(); it.hasNext();) {
-                if (describer.isGone(
-                    it.next()
-                        .getKey())) {
-                    it.remove();
-                }
-            }
             // Unloaded worlds: their block ticks and tile entities let go of them.
-            for (Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> places : Arrays
+            for (Map<Level, IdentityHashMap<Object, HashMap<Long, Node>>> places : Arrays
                 .asList(blockTicks, lightAt, neighborsAt)) {
-                for (Iterator<Map.Entry<World, IdentityHashMap<Object, HashMap<Long, Node>>>> it = places.entrySet()
+                for (Iterator<Map.Entry<Level, IdentityHashMap<Object, HashMap<Long, Node>>>> it = places.entrySet()
                     .iterator(); it.hasNext();) {
-                    Map.Entry<World, IdentityHashMap<Object, HashMap<Long, Node>>> entry = it.next();
+                    Map.Entry<Level, IdentityHashMap<Object, HashMap<Long, Node>>> entry = it.next();
                     if (describer.isGone(entry.getKey())) {
                         for (HashMap<Long, Node> byChunk : entry.getValue()
                             .values()) {
@@ -976,9 +942,9 @@ public final class ProfileSession {
                     }
                 }
             }
-            for (Iterator<Map.Entry<World, HashMap<Long, Node>>> it = tilesAt.entrySet()
+            for (Iterator<Map.Entry<Level, HashMap<Long, Node>>> it = tilesAt.entrySet()
                 .iterator(); it.hasNext();) {
-                Map.Entry<World, HashMap<Long, Node>> entry = it.next();
+                Map.Entry<Level, HashMap<Long, Node>> entry = it.next();
                 if (describer.isGone(entry.getKey())) {
                     for (Node node : entry.getValue()
                         .values()) {
@@ -1121,8 +1087,7 @@ public final class ProfileSession {
                 type.name = leaf.name;
                 type.detail = leaf.detail;
                 type.translationKey = leaf.translationKey;
-                type.itemId = leaf.itemId;
-                type.itemDamage = leaf.itemDamage;
+                type.item = leaf.item;
                 type.mod = leaf.mod;
                 type.kind = leaf.kind;
             }
@@ -1196,6 +1161,7 @@ public final class ProfileSession {
                 describer.updateLocation(node);
             }
         }
+        labelComputers();
         try {
             knownDims.putAll(describer.dimensionNames());
         } catch (Throwable t) {
@@ -1235,6 +1201,7 @@ public final class ProfileSession {
             report.steadyP90TickMs = SteadyHistogram.percentile(steadyTickHistogram, totalPeriods, 0.9f);
         }
         report.spikeMs = spikeMs;
+        report.computerThreads = ComputerWork.threads();
         report.overheadSec = (float) Math.min(totalOverhead / 1e9, report.durationSec * 0.98);
         report.lowestSecond = lowestSecond;
         report.frameCap = frameCap;

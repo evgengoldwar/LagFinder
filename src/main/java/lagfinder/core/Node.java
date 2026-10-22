@@ -5,7 +5,6 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-import net.minecraft.tileentity.TileEntity;
 
 /**
  * One line of a scan's tree while it runs: a category (depth 0), a mod (1), a kind of thing (2) or one thing in the
@@ -39,7 +38,7 @@ public final class Node {
     /** A translation key the client may know a better name by, or null. */
     public String translationKey;
     /** Item standing for it (its icon and name on the client), -1 for none. */
-    public int itemId = -1, itemDamage;
+    public String item;
 
     // Where an instance is.
     public int dim, x, y, z;
@@ -162,7 +161,7 @@ public final class Node {
         }
     }
 
-    void recordGtActivity(TileEntity tile, long nanos, int period) {
+    void recordGtActivity(Object tile, long nanos, int period) {
         if (!gtChecked) {
             gtTile = GT_TILE != null && GT_IS_ACTIVE != null && GT_TILE.isInstance(tile);
             gtChecked = true;

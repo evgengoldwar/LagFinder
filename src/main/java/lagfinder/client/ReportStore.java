@@ -11,12 +11,13 @@ import lagfinder.LagFinder;
 import lagfinder.core.Report;
 import lagfinder.core.ReportFiles;
 
+/** The reports this client kept: the server's reports it received, saved under {@code lagfinder/reports}. */
 public final class ReportStore {
 
     private ReportStore() {}
 
     public static File folder() {
-        return new File(new File(Minecraft.getMinecraft().mcDataDir, "lagfinder"), "reports");
+        return new File(new File(Minecraft.getInstance().gameDirectory, "lagfinder"), "reports");
     }
 
     public static void save(Report report, byte[] data) {

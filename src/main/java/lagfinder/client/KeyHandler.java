@@ -1,49 +1,46 @@
 package lagfinder.client;
 
+import org.lwjgl.glfw.GLFW;
+
+import com.mojang.blaze3d.platform.InputConstants;
+
+import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.settings.GameSettings;
-import net.minecraft.client.settings.KeyBinding;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 
-import org.lwjgl.input.Keyboard;
-
-import cpw.mods.fml.client.registry.ClientRegistry;
-import cpw.mods.fml.common.eventhandler.SubscribeEvent;
-import cpw.mods.fml.common.gameevent.InputEvent;
 import lagfinder.client.gui.GuiLagFinder;
 
 public final class KeyHandler {
 
-    public static final KeyBinding OPEN = new KeyBinding(
+    public static final KeyMapping OPEN = new KeyMapping(
         "key.lagfinder.open",
-        Keyboard.KEY_L,
+        InputConstants.Type.KEYSYM,
+        GLFW.GLFW_KEY_L,
         "key.categories.lagfinder");
 
-    public static final KeyBinding WORLD_MS = new KeyBinding(
-        "key.lagfinder.world_ms",
-        Keyboard.KEY_NUMPAD0,
-        "key.categories.lagfinder");
+    private KeyHandler() {}
 
-    public static void register() {
-        ClientRegistry.registerKeyBinding(OPEN);
-        ClientRegistry.registerKeyBinding(WORLD_MS);
+    static void register(RegisterKeyMappingsEvent event) {
+        event.register(OPEN);
     }
 
     public static String keyName() {
-        return GameSettings.getKeyDisplayString(OPEN.getKeyCode());
+        return OPEN.getTranslatedKeyMessage()
+            .getString();
     }
 
-    @SubscribeEvent
-    public void onKey(InputEvent.KeyInputEvent event) {
-        Minecraft mc = Minecraft.getMinecraft();
-        if (mc.currentScreen != null) {
-            return;
-        }
-        if (OPEN.isPressed() && (!ClientScanner.INSTANCE.serverHasMod() || ClientScanner.INSTANCE.serverAllowed())) {
-            mc.displayGuiScreen(GuiLagFinder.toOpen());
-        }
-        if (WORLD_MS.isPressed()
-            && (!ClientScanner.INSTANCE.serverHasMod() || ClientScanner.INSTANCE.serverAllowed())) {
-            WorldMsOverlay.INSTANCE.toggle();
+    /** Whether the key is the one opening the window (to close it again with the same key). */
+    public static boolean isOpenKey(int keyCode) {
+        return OPEN.matches(keyCode, 0);
+    }
+
+    static void onClientTick(ClientTickEvent.Post event) {
+        Minecraft mc = Minecraft.getInstance();
+        while (OPEN.consumeClick()) {
+            if (mc.screen == null) {
+                mc.setScreen(GuiLagFinder.toOpen());
+            }
         }
     }
 }

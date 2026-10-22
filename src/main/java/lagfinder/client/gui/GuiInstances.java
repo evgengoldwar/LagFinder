@@ -8,12 +8,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
-import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.resources.I18n;
-import net.minecraft.item.ItemStack;
+import lagfinder.client.gui.ui.GuiButton;
+import net.minecraft.client.resources.language.I18n;
+import net.minecraft.world.item.ItemStack;
 
-import org.lwjgl.input.Keyboard;
-import org.lwjgl.input.Mouse;
+import lagfinder.client.gui.ui.Keyboard;
+import lagfinder.client.gui.ui.Mouse;
 
 import lagfinder.client.ClientScanner;
 import lagfinder.client.Highlighter;
@@ -214,7 +214,7 @@ public class GuiInstances extends ScaledScreen {
             toolbarY,
             70,
             16,
-            I18n.format("lagfinder.cards.back"));
+            I18n.get("lagfinder.cards.back"));
         backButton.icon = Icons.BACK;
         buttonList.add(backButton);
         int right = gridRight;
@@ -227,7 +227,7 @@ public class GuiInstances extends ScaledScreen {
         dimButton.enabled = dimensions.size() > 1;
         buttonList.add(dimButton);
         right -= 130 + 4;
-        clearButton = new FlatButton(ID_CLEAR, right - 110, toolbarY, 110, 16, I18n.format("lagfinder.cards.clear"));
+        clearButton = new FlatButton(ID_CLEAR, right - 110, toolbarY, 110, 16, I18n.get("lagfinder.cards.clear"));
         clearButton.icon = Icons.SMALL_EYE;
         buttonList.add(clearButton);
         right -= 110 + 4;
@@ -236,7 +236,7 @@ public class GuiInstances extends ScaledScreen {
         int searchLeft = gridLeft + 70 + 6;
         String text = search != null ? search.getText() : startSearch != null ? startSearch : "";
         search = new FlatTextField(fontRendererObj, searchLeft, toolbarY, Math.max(80, right - searchLeft), 16);
-        search.setHint(I18n.format("lagfinder.cards.search"));
+        search.setHint(I18n.get("lagfinder.cards.search"));
         search.setMaxStringLength(64);
         search.setText(text);
         search.setOnCleared(this::rebuild);
@@ -260,8 +260,8 @@ public class GuiInstances extends ScaledScreen {
     }
 
     private void updateButtons() {
-        sortButton.displayString = I18n.format(sort.key);
-        dimButton.displayString = dimension == null ? I18n.format("lagfinder.cards.all_dims")
+        sortButton.displayString = I18n.get(sort.key);
+        dimButton.displayString = dimension == null ? I18n.get("lagfinder.cards.all_dims")
             : report.dimensionName(dimension);
         clearButton.enabled = !Highlighter.INSTANCE.all()
             .isEmpty();
@@ -275,7 +275,7 @@ public class GuiInstances extends ScaledScreen {
     // ---------------------------------------------------------------- What is shown
 
     private boolean playerIn(int dim) {
-        return mc.thePlayer != null && mc.theWorld != null && mc.theWorld.provider.dimensionId == dim;
+        return mc.player != null && mc.level != null && lagfinder.Dims.id(mc.level) == dim;
     }
 
     /** How far the player is from it (blocks), or -1 in another dimension. */
@@ -283,8 +283,8 @@ public class GuiInstances extends ScaledScreen {
         if (!playerIn(entry.dim)) {
             return -1;
         }
-        double dx = entry.x + 0.5 - mc.thePlayer.posX, dy = entry.y + 0.5 - mc.thePlayer.posY,
-            dz = entry.z + 0.5 - mc.thePlayer.posZ;
+        double dx = entry.x + 0.5 - mc.player.getX(), dy = entry.y + 0.5 - mc.player.getY(),
+            dz = entry.z + 0.5 - mc.player.getZ();
         return Math.sqrt(dx * dx + dy * dy + dz * dz);
     }
 
@@ -378,7 +378,7 @@ public class GuiInstances extends ScaledScreen {
         if (button.id == ID_CLOSE || button.id == ID_BACK) {
             goBack();
         } else if (button.id == ID_SORT) {
-            sort = Sort.values()[(sort.ordinal() + (isShiftKeyDown() ? Sort.values().length - 1 : 1))
+            sort = Sort.values()[(sort.ordinal() + (hasShiftDown() ? Sort.values().length - 1 : 1))
                 % Sort.values().length];
             scroll = 0;
             updateButtons();
@@ -397,7 +397,7 @@ public class GuiInstances extends ScaledScreen {
     }
 
     private void goBack() {
-        mc.displayGuiScreen(back);
+        mc.setScreen(back);
     }
 
     @Override
@@ -464,8 +464,8 @@ public class GuiInstances extends ScaledScreen {
         if (wheel == 0) {
             return;
         }
-        int x = Mouse.getEventX() * width / mc.displayWidth;
-        int y = height - Mouse.getEventY() * height / mc.displayHeight - 1;
+        int x = Mouse.getEventX() * width / mc.getWindow().getWidth();
+        int y = height - Mouse.getEventY() * height / mc.getWindow().getHeight() - 1;
         if (Theme.inside(x, y, gridLeft, gridTop, gridRight, gridBottom)) {
             scroll -= Integer.signum(wheel) * rowHeight();
             clampScroll();
@@ -601,7 +601,7 @@ public class GuiInstances extends ScaledScreen {
         String subtitle = (root.level == 2 ? modOf(root) + "  ·  " : "") + Names.category(root.category);
         int seen = seen();
         if (seen > all.size()) {
-            subtitle += "  ·  " + I18n.format("lagfinder.cards.kept", all.size(), seen);
+            subtitle += "  ·  " + I18n.get("lagfinder.cards.kept", all.size(), seen);
         }
         String pill = shown.size() == all.size() ? String.valueOf(all.size()) : shown.size() + " / " + all.size();
         WindowHeader.draw(
@@ -631,9 +631,9 @@ public class GuiInstances extends ScaledScreen {
             }
         }
         if (sortButton.isMouseOver(mouseX, mouseY)) {
-            showTooltip(I18n.format("lagfinder.tip.cards_sort"), mouseX, mouseY);
+            showTooltip(I18n.get("lagfinder.tip.cards_sort"), mouseX, mouseY);
         } else if (dimButton.isMouseOver(mouseX, mouseY)) {
-            showTooltip(I18n.format("lagfinder.tip.cards_dim"), mouseX, mouseY);
+            showTooltip(I18n.get("lagfinder.tip.cards_dim"), mouseX, mouseY);
         }
     }
 
@@ -663,7 +663,7 @@ public class GuiInstances extends ScaledScreen {
         }
         double perPeriod = report.periods == 0 ? 0 : total / report.periods;
         int x = gridLeft + 2;
-        String label = I18n.format(report.costsInFps() ? "lagfinder.cards.together_fps" : "lagfinder.cards.together");
+        String label = I18n.get(report.costsInFps() ? "lagfinder.cards.together_fps" : "lagfinder.cards.together");
         fontRendererObj.drawString(label, x, y, Theme.TEXT_DISABLED);
         x += fontRendererObj.getStringWidth(label) + 4;
         String value = avgText(perPeriod);
@@ -671,7 +671,7 @@ public class GuiInstances extends ScaledScreen {
         x += fontRendererObj.getStringWidth(value) + 12;
         if (spiky > 0) {
             Icons.draw(Icons.SMALL_SPIKE, x, y, Theme.ORANGE);
-            String spikes = I18n.format("lagfinder.cards.spiked", spiky);
+            String spikes = I18n.get("lagfinder.cards.spiked", spiky);
             fontRendererObj.drawString(spikes, x + 10, y, Theme.TEXT_MUTED);
             x += 10 + fontRendererObj.getStringWidth(spikes) + 12;
         }
@@ -680,16 +680,16 @@ public class GuiInstances extends ScaledScreen {
         if (highlighted > 0) {
             Icons.draw(Icons.SMALL_EYE, x, y, Theme.ACCENT);
             fontRendererObj
-                .drawString(I18n.format("lagfinder.cards.highlighted", highlighted), x + 10, y, Theme.TEXT_MUTED);
+                .drawString(I18n.get("lagfinder.cards.highlighted", highlighted), x + 10, y, Theme.TEXT_MUTED);
         }
-        String hint = I18n.format("lagfinder.cards.hint");
+        String hint = I18n.get("lagfinder.cards.hint");
         fontRendererObj.drawString(hint, gridRight - 2 - fontRendererObj.getStringWidth(hint), y, Theme.TEXT_DISABLED);
     }
 
     private void drawGrid(int mouseX, int mouseY) {
         Theme.card(gridLeft, gridTop - 1, gridRight, gridBottom);
         if (shown.isEmpty()) {
-            String empty = I18n.format(all.isEmpty() ? "lagfinder.cards.none" : "lagfinder.gui.nothing_found");
+            String empty = I18n.get(all.isEmpty() ? "lagfinder.cards.none" : "lagfinder.gui.nothing_found");
             Theme.centered(fontRendererObj, empty, (gridLeft + gridRight) / 2, gridTop + 24, Theme.TEXT_DISABLED);
             return;
         }
@@ -796,11 +796,11 @@ public class GuiInstances extends ScaledScreen {
         // Its numbers: average and worst tick, and a bar of its average against the heaviest of the list.
         int statsY = y0 + 29;
         int half = (x1 - x0 - 16) / 2;
-        String avgLabel = I18n.format("lagfinder.cards.avg");
+        String avgLabel = I18n.get("lagfinder.cards.avg");
         fontRendererObj.drawString(avgLabel, x, statsY, Theme.TEXT_DISABLED);
         fontRendererObj.drawString(avgText(average), x + fontRendererObj.getStringWidth(avgLabel) + 4, statsY, heat);
         int px = x + half;
-        String peakLabel = I18n.format("lagfinder.cards.peak");
+        String peakLabel = I18n.get("lagfinder.cards.peak");
         fontRendererObj.drawString(peakLabel, px, statsY, Theme.TEXT_DISABLED);
         int peakX = px + fontRendererObj.getStringWidth(peakLabel) + 4;
         String peak = peakText(entry);
@@ -819,14 +819,14 @@ public class GuiInstances extends ScaledScreen {
             x1 - 6,
             statsY + 10,
             () -> picked = picked == entry ? null : entry,
-            I18n.format("lagfinder.cards.stats_tip") + "\n"
-                + I18n.format(
+            I18n.get("lagfinder.cards.stats_tip") + "\n"
+                + I18n.get(
                     !fps() ? "lagfinder.stat.avg_tick"
                         : report.costsInFps() ? "lagfinder.stat.avg_frame" : "lagfinder.stat.avg_tick_frame")
                 + ": "
                 + avgText(average)
                 + "\n"
-                + I18n.format(
+                + I18n.get(
                     report.costsInFps() ? "lagfinder.stat.peak_fps"
                         : fps() ? "lagfinder.stat.peak_frame" : "lagfinder.stat.peak")
                 + ": "
@@ -834,11 +834,11 @@ public class GuiInstances extends ScaledScreen {
                 + "  @"
                 + Names.clock(entry.maxAt)
                 + "\n"
-                + I18n.format("lagfinder.stat.spikes")
+                + I18n.get("lagfinder.stat.spikes")
                 + ": "
                 + entry.spikes
                 + "\n"
-                + I18n.format("lagfinder.stat.active")
+                + I18n.get("lagfinder.stat.active")
                 + ": "
                 + String.format("%.0f%%", Math.min(100, entry.activePeriods * 100.0 / Math.max(1, report.periods))));
         Theme.meter(x, y0 + 40, x1 - 6, y0 + 42, heaviest <= 0 ? 0 : entry.totalMs / heaviest, accent);
@@ -850,9 +850,9 @@ public class GuiInstances extends ScaledScreen {
     private void drawButtons(ReportEntry entry, int x0, int y0, int x1, int y1, boolean highlighted, int mouseX,
         int mouseY) {
         boolean canTeleport = ClientScanner.INSTANCE.teleportAllowed();
-        String[] labels = { I18n.format("lagfinder.action.teleport"),
-            I18n.format(highlighted ? "lagfinder.action.unhighlight" : "lagfinder.action.highlight"),
-            I18n.format("lagfinder.action.copy") };
+        String[] labels = { I18n.get("lagfinder.action.teleport"),
+            I18n.get(highlighted ? "lagfinder.action.unhighlight" : "lagfinder.action.highlight"),
+            I18n.get("lagfinder.action.copy") };
         String[][] icons = { Icons.SMALL_TELEPORT, Icons.SMALL_EYE, Icons.SMALL_COPY };
         int gap = 3;
         int each = (x1 - x0 - gap * 2) / 3;
@@ -881,20 +881,20 @@ public class GuiInstances extends ScaledScreen {
             String tip;
             if (i == 0) {
                 action = enabled ? () -> teleport(entry) : null;
-                tip = I18n.format(canTeleport ? "lagfinder.tip.teleport" : "lagfinder.action.no_teleport");
+                tip = I18n.get(canTeleport ? "lagfinder.tip.teleport" : "lagfinder.action.no_teleport");
             } else if (i == 1) {
                 action = () -> {
                     Highlighter.INSTANCE.toggle(report, entry);
                     picked = entry;
                 };
-                tip = entry.partCount() > 1 ? I18n.format("lagfinder.tip.highlight_network", entry.partCount())
-                    : I18n.format("lagfinder.tip.highlight");
+                tip = entry.partCount() > 1 ? I18n.get("lagfinder.tip.highlight_network", entry.partCount())
+                    : I18n.get("lagfinder.tip.highlight");
             } else {
                 action = () -> {
-                    setClipboardString(entry.x + " " + entry.y + " " + entry.z);
+                    mc.keyboardHandler.setClipboard(entry.x + " " + entry.y + " " + entry.z);
                     picked = entry;
                 };
-                tip = I18n.format("lagfinder.tip.copy");
+                tip = I18n.get("lagfinder.tip.copy");
             }
             hit(bx0, y0, bx1, y1, action, tip);
         }
@@ -905,7 +905,7 @@ public class GuiInstances extends ScaledScreen {
             return;
         }
         picked = entry;
-        Net.sendToServer(Net.Teleport.to(entry));
+        lagfinder.client.ClientScanner.INSTANCE.sendToServer(Net.Teleport.to(entry));
         if (!Highlighter.INSTANCE.isHighlighted(entry)) {
             Highlighter.INSTANCE.toggle(report, entry);
         }

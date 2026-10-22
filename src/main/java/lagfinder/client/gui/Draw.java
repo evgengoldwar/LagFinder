@@ -4,49 +4,32 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.renderer.OpenGlHelper;
-import net.minecraft.client.renderer.RenderHelper;
-import net.minecraft.client.renderer.Tessellator;
-import net.minecraft.client.renderer.entity.RenderItem;
-import net.minecraft.item.Item;
-import net.minecraft.item.ItemStack;
+import org.joml.Matrix4f;
 
-import org.lwjgl.opengl.GL11;
-import org.lwjgl.opengl.GL12;
+import com.mojang.blaze3d.vertex.VertexConsumer;
+
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.RenderType;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.ItemStack;
 
 import lagfinder.LagFinder;
+import lagfinder.client.gui.ui.FontRenderer;
+import lagfinder.client.gui.ui.Gfx;
 import lagfinder.client.gui.ui.ScaledScreen;
 import lagfinder.client.gui.ui.Theme;
 
 /** Drawing the screens need beyond rectangles: smooth lines and areas for the graphs, item icons, tooltips. */
 public final class Draw {
 
-    private static final RenderItem RENDER_ITEM = new RenderItem();
     /** Items whose renderer failed once: never drawn again, so they can't break the screen. */
     private static final Set<String> BROKEN = new HashSet<>();
 
     private Draw() {}
 
-    /** Starts drawing untextured shapes with per-vertex colors. */
-    public static void beginShapes() {
-        GL11.glDisable(GL11.GL_TEXTURE_2D);
-        GL11.glEnable(GL11.GL_BLEND);
-        OpenGlHelper.glBlendFunc(GL11.GL_SRC_ALPHA, GL11.GL_ONE_MINUS_SRC_ALPHA, 1, 0);
-        GL11.glShadeModel(GL11.GL_SMOOTH);
-        GL11.glDisable(GL11.GL_ALPHA_TEST);
-    }
-
-    public static void endShapes() {
-        GL11.glShadeModel(GL11.GL_FLAT);
-        GL11.glEnable(GL11.GL_ALPHA_TEST);
-        GL11.glEnable(GL11.GL_TEXTURE_2D);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
-    }
-
-    private static void color(Tessellator tess, int argb) {
-        tess.setColorRGBA_I(argb & 0xFFFFFF, argb >>> 24);
+    private static void vertex(VertexConsumer buffer, Matrix4f matrix, double x, double y, int argb) {
+        buffer.addVertex(matrix, (float) x, (float) y, 0f)
+            .setColor(argb);
     }
 
     /** The area under a line down to {@code baseY}, each point in its own colors at the line and at the base. */
@@ -54,17 +37,19 @@ public final class Draw {
         if (xs.length < 2) {
             return;
         }
-        beginShapes();
-        Tessellator tess = Tessellator.instance;
-        tess.startDrawing(GL11.GL_TRIANGLE_STRIP);
-        for (int i = 0; i < xs.length; i++) {
-            color(tess, tops[i]);
-            tess.addVertex(xs[i], ys[i], 0);
-            color(tess, bottoms[i]);
-            tess.addVertex(xs[i], baseY, 0);
+        GuiGraphics g = Gfx.g();
+        Matrix4f matrix = g.pose()
+            .last()
+            .pose();
+        VertexConsumer buffer = g.bufferSource()
+            .getBuffer(RenderType.gui());
+        for (int i = 0; i + 1 < xs.length; i++) {
+            vertex(buffer, matrix, xs[i], ys[i], tops[i]);
+            vertex(buffer, matrix, xs[i], baseY, bottoms[i]);
+            vertex(buffer, matrix, xs[i + 1], baseY, bottoms[i + 1]);
+            vertex(buffer, matrix, xs[i + 1], ys[i + 1], tops[i + 1]);
         }
-        tess.draw();
-        endShapes();
+        g.flush();
     }
 
     /** A line through the points, each point in its own color, {@code width} GUI pixels thick. */
@@ -72,51 +57,62 @@ public final class Draw {
         if (xs.length < 2) {
             return;
         }
-        beginShapes();
-        GL11.glEnable(GL11.GL_LINE_SMOOTH);
-        GL11.glHint(GL11.GL_LINE_SMOOTH_HINT, GL11.GL_NICEST);
-        GL11.glLineWidth(Math.max(1f, width * ScaledScreen.currentFactor()));
-        Tessellator tess = Tessellator.instance;
-        tess.startDrawing(GL11.GL_LINE_STRIP);
-        for (int i = 0; i < xs.length; i++) {
-            color(tess, colors[i]);
-            tess.addVertex(xs[i], ys[i], 0);
+        GuiGraphics g = Gfx.g();
+        Matrix4f matrix = g.pose()
+            .last()
+            .pose();
+        VertexConsumer buffer = g.bufferSource()
+            .getBuffer(RenderType.gui());
+        double half = Math.max(0.5 / ScaledScreen.currentFactor(), width / 2.0);
+        for (int i = 0; i + 1 < xs.length; i++) {
+            double dx = xs[i + 1] - xs[i], dy = ys[i + 1] - ys[i];
+            double length = Math.sqrt(dx * dx + dy * dy);
+            if (length < 1e-6) {
+                continue;
+            }
+            double nx = -dy / length * half, ny = dx / length * half;
+            vertex(buffer, matrix, xs[i] + nx, ys[i] + ny, colors[i]);
+            vertex(buffer, matrix, xs[i] - nx, ys[i] - ny, colors[i]);
+            vertex(buffer, matrix, xs[i + 1] - nx, ys[i + 1] - ny, colors[i + 1]);
+            vertex(buffer, matrix, xs[i + 1] + nx, ys[i + 1] + ny, colors[i + 1]);
         }
-        tess.draw();
-        GL11.glLineWidth(1f);
-        GL11.glDisable(GL11.GL_LINE_SMOOTH);
-        endShapes();
+        g.flush();
     }
 
     /** A rectangle with fractional edges, colored {@code top} at the top and {@code bottom} at the bottom. */
     public static void gradientRect(double x0, double y0, double x1, double y1, int top, int bottom) {
-        beginShapes();
-        Tessellator tess = Tessellator.instance;
-        tess.startDrawingQuads();
-        color(tess, top);
-        tess.addVertex(x1, y0, 0);
-        tess.addVertex(x0, y0, 0);
-        color(tess, bottom);
-        tess.addVertex(x0, y1, 0);
-        tess.addVertex(x1, y1, 0);
-        tess.draw();
-        endShapes();
+        if (x1 <= x0 || y1 <= y0) {
+            return;
+        }
+        GuiGraphics g = Gfx.g();
+        Matrix4f matrix = g.pose()
+            .last()
+            .pose();
+        VertexConsumer buffer = g.bufferSource()
+            .getBuffer(RenderType.gui());
+        vertex(buffer, matrix, x0, y0, top);
+        vertex(buffer, matrix, x0, y1, bottom);
+        vertex(buffer, matrix, x1, y1, bottom);
+        vertex(buffer, matrix, x1, y0, top);
+        g.flush();
     }
 
     /** A rectangle with fractional edges, colored {@code left} at its left and {@code right} at its right. */
     public static void horizontalGradient(double x0, double y0, double x1, double y1, int left, int right) {
-        beginShapes();
-        Tessellator tess = Tessellator.instance;
-        tess.startDrawingQuads();
-        color(tess, right);
-        tess.addVertex(x1, y0, 0);
-        color(tess, left);
-        tess.addVertex(x0, y0, 0);
-        tess.addVertex(x0, y1, 0);
-        color(tess, right);
-        tess.addVertex(x1, y1, 0);
-        tess.draw();
-        endShapes();
+        if (x1 <= x0 || y1 <= y0) {
+            return;
+        }
+        GuiGraphics g = Gfx.g();
+        Matrix4f matrix = g.pose()
+            .last()
+            .pose();
+        VertexConsumer buffer = g.bufferSource()
+            .getBuffer(RenderType.gui());
+        vertex(buffer, matrix, x0, y0, left);
+        vertex(buffer, matrix, x0, y1, left);
+        vertex(buffer, matrix, x1, y1, right);
+        vertex(buffer, matrix, x1, y0, right);
+        g.flush();
     }
 
     /** A box of lines of text near the mouse, kept on the screen. */
@@ -135,60 +131,47 @@ public final class Draw {
             x = mouseX - 12 - width - 8;
         }
         y = Math.max(2, Math.min(screenHeight - height - 2, y));
-        GL11.glPushMatrix();
-        GL11.glTranslatef(0f, 0f, 300f);
+        GuiGraphics g = Gfx.g();
+        g.pose()
+            .pushPose();
+        g.pose()
+            .translate(0f, 0f, 400f);
         Theme.shadow(x, y, x + width + 8, y + height, 3);
         Theme.gradient(x, y, x + width + 8, y + height, 0xF8141920, 0xF80C0F13);
         Theme.outline(x, y, x + width + 8, y + height, 0xFF323B47);
-        // A line of the title's color along the top, so it reads as part of what it tells about.
         Theme.fill(x + 1, y, x + width + 7, y + 1, Theme.blend(colors.get(0), 0xFF323B47, 0.45));
         for (int i = 0; i < lines.size(); i++) {
             font.drawString(lines.get(i), x + 4, y + 4 + i * 10, colors.get(i));
         }
-        GL11.glPopMatrix();
+        g.pose()
+            .popPose();
     }
 
     /** Draws the item's icon at (x, y), {@code size} GUI pixels square. */
     public static void item(ItemStack stack, int x, int y, float size) {
-        if (stack == null || stack.getItem() == null) {
+        if (stack == null || stack.isEmpty()) {
             return;
         }
-        String key = Item.getIdFromItem(stack.getItem()) + ":" + stack.getItemDamage();
+        String key = String.valueOf(BuiltInRegistries.ITEM.getKey(stack.getItem()));
         if (BROKEN.contains(key)) {
             return;
         }
-        Minecraft mc = Minecraft.getMinecraft();
-        int depth = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH);
-        float zLevel = RENDER_ITEM.zLevel;
-        GL11.glPushMatrix();
-        GL11.glPushAttrib(GL11.GL_ENABLE_BIT | GL11.GL_COLOR_BUFFER_BIT | GL11.GL_DEPTH_BUFFER_BIT);
-        GL11.glTranslatef(x, y, 0f);
-        GL11.glScalef(size / 16f, size / 16f, 1f);
-        GL11.glColor4f(1f, 1f, 1f, 1f);
-        GL11.glEnable(GL12.GL_RESCALE_NORMAL);
-        GL11.glEnable(GL11.GL_DEPTH_TEST);
-        RenderHelper.enableGUIStandardItemLighting();
+        GuiGraphics g = Gfx.g();
+        g.pose()
+            .pushPose();
+        g.pose()
+            .translate(x, y, 0f);
+        g.pose()
+            .scale(size / 16f, size / 16f, 1f);
         try {
-            RENDER_ITEM.renderItemAndEffectIntoGUI(mc.fontRenderer, mc.getTextureManager(), stack, 0, 0);
+            g.renderItem(stack, 0, 0);
+            g.flush();
         } catch (Throwable t) {
             BROKEN.add(key);
             LagFinder.LOG.warn("Could not draw the icon of item {}; it is left out", key, t);
-            try {
-                Tessellator.instance.draw();
-            } catch (Throwable ignored) {
-                // Wasn't drawing.
-            }
-            RENDER_ITEM.zLevel = zLevel;
         }
-        RenderHelper.disableStandardItemLighting();
-        GL11.glPopAttrib();
-        GL11.glMatrixMode(GL11.GL_MODELVIEW);
-        for (int extra = GL11.glGetInteger(GL11.GL_MODELVIEW_STACK_DEPTH) - depth; extra > 1; extra--) {
-            GL11.glPopMatrix();
-        }
-        GL11.glPopMatrix();
-        GL11.glColor4f(1f, 1f, 1f, 1f);
-        GL11.glDisable(GL11.GL_LIGHTING);
+        g.pose()
+            .popPose();
     }
 
     /** A rounded-looking value: 1, 2, 5, 10, 20, 50... at least {@code value}. */

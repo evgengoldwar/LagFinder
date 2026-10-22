@@ -1,10 +1,8 @@
 package lagfinder.client.gui.ui;
 
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.FontRenderer;
-import net.minecraft.client.gui.Gui;
+import com.mojang.blaze3d.systems.RenderSystem;
 
-import org.lwjgl.opengl.GL11;
+import net.minecraft.client.Minecraft;
 
 import lagfinder.client.gui.Draw;
 
@@ -47,7 +45,11 @@ public final class Theme {
     private Theme() {}
 
     public static void fill(int x0, int y0, int x1, int y1, int color) {
-        Gui.drawRect(x0, y0, x1, y1, color);
+        if (x1 <= x0 || y1 <= y0 || (color >>> 24) == 0) {
+            return;
+        }
+        Gfx.g()
+            .fill(x0, y0, x1, y1, color);
     }
 
     /** One pixel outline inside the rectangle. */
@@ -99,7 +101,6 @@ public final class Theme {
         for (int i = size; i >= 1; i--) {
             int alpha = (int) Math.round(0x38 * Math.pow(1 - (i - 1) / (double) size, 2));
             int color = alpha << 24;
-            // Each ring one pixel wide, so the corners stay square and nothing is drawn twice.
             fill(x0 - i, y0 - i, x1 + i, y0 - i + 1, color);
             fill(x0 - i, y1 + i - 1, x1 + i, y1 + i, color);
             fill(x0 - i, y0 - i + 1, x0 - i + 1, y1 + i - 1, color);
@@ -218,16 +219,24 @@ public final class Theme {
      * is cut at its edges instead of rows popping in and out.
      */
     public static void clip(int x0, int y0, int x1, int y1) {
+        Gfx.g()
+            .flush();
         int factor = ScaledScreen.currentFactor();
-        int displayHeight = Minecraft.getMinecraft().displayHeight;
-        // The scissor is in window pixels: the screen's slide while it opens is not applied to it.
+        int displayHeight = Minecraft.getInstance()
+            .getWindow()
+            .getHeight();
         int offset = ScaledScreen.currentOffset();
-        GL11.glEnable(GL11.GL_SCISSOR_TEST);
-        GL11.glScissor(x0 * factor, displayHeight - (y1 + offset) * factor, (x1 - x0) * factor, (y1 - y0) * factor);
+        RenderSystem.enableScissor(
+            x0 * factor,
+            displayHeight - (y1 + offset) * factor,
+            Math.max(0, (x1 - x0) * factor),
+            Math.max(0, (y1 - y0) * factor));
     }
 
     public static void unclip() {
-        GL11.glDisable(GL11.GL_SCISSOR_TEST);
+        Gfx.g()
+            .flush();
+        RenderSystem.disableScissor();
     }
 
     /**

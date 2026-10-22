@@ -6,39 +6,32 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiButton;
-import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
-
-import org.lwjgl.input.Keyboard;
+import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.resources.language.I18n;
 
 import lagfinder.client.ClientScanner;
 import lagfinder.client.KeyHandler;
 import lagfinder.client.Names;
 import lagfinder.client.gui.ui.FlatButton;
 import lagfinder.client.gui.ui.FlatTextField;
+import lagfinder.client.gui.ui.GuiButton;
 import lagfinder.client.gui.ui.Icons;
+import lagfinder.client.gui.ui.Keyboard;
 import lagfinder.client.gui.ui.Smooth;
 import lagfinder.client.gui.ui.Theme;
 import lagfinder.client.gui.ui.TimeSlider;
 import lagfinder.core.LagFilter;
 import lagfinder.core.Report;
 import lagfinder.core.ScanFocus;
-import lagfinder.core.ScanMode;
 import lagfinder.core.ScanSide;
 
 /**
- * The scanner: what to scan (the lag of the server's ticks or of this client's frames, the methods a thread spends its
- * time in like Spark, the objects in memory, or the objects being created and who creates them), for how long (a
- * slider, or typed in), where (the server, this client, or both at once), a start button that turns into a progress
- * bar, the button to the report (the two sides' added up when both were scanned), which opens once there is one, and
- * the one to the saved reports.
+ * The scanner: the server's ticks, for how long (a slider, or typed in), how they are measured and what the log leaves
+ * out, a start button that turns into a progress bar, and the button to the report, which opens once there is one.
  */
 public class GuiLagFinder extends GuiWindow {
 
     private static final int ID_START = 0, ID_OPEN = 1;
-    /** The buttons picking the side, by {@link ScanSide} ordinal. */
-    private static final int ID_SIDE = 10;
     /** The buttons picking what a tick scan's log leaves out: by average time, or by the worst tick. */
     private static final int ID_FILTER_AVERAGE = 20, ID_FILTER_PEAK = 21;
     /** The buttons picking how a tick scan measures: one tick in a few (light), or every tick (full). */
@@ -47,53 +40,15 @@ public class GuiLagFinder extends GuiWindow {
     private static final int[] MARKS = { 10, 30, 60, 120, 300, 600 };
     /** Shortest and longest scan that can be typed in (seconds); the server may allow less. */
     private static final int MIN_SECONDS = 5, MAX_SECONDS = 3600;
-    /** Heights of the cards of the first row (the lag scans) and of the second (the deeper looks). */
-    private static final int CARD_HEIGHT = 50, SMALL_CARD_HEIGHT = 40, CARD_GAP = 5, TIME_BOX = 58;
-    /** Heights of the sections, and the gap between them. */
-    private static final int WHAT_HEIGHT = 20 + CARD_HEIGHT + CARD_GAP + SMALL_CARD_HEIGHT + 6, WHERE_HEIGHT = 42,
-        SLIDER_HEIGHT = 46, FILTER_HEIGHT = 48, STATUS_HEIGHT = 34, SECTION_GAP = 6;
+    private static final int CARD_HEIGHT = 70, TIME_BOX = 58;
+    private static final int WHAT_HEIGHT = 20 + CARD_HEIGHT + 6, SLIDER_HEIGHT = 46, FILTER_HEIGHT = 48,
+        STATUS_HEIGHT = 34, SECTION_GAP = 8;
     /** The marks on the slider of the least time a tick scan's log shows (hundredths of a millisecond). */
     private static final int[] FILTER_MARKS = { 1, 10, 50, 100, 200, 500, 1000, 5000 };
     private static final int FILTER_BUTTON = 44, SEGMENT_HEIGHT = 15, SEGMENT_PADDING = 10;
     private static final int WARN = 0xFFF2C14E;
+    private static final int TPS_COLOR = Theme.ACCENT;
 
-    /** The cards to pick from: what each one scans. */
-    private enum Card {
-
-        TPS(ScanFocus.LAG, Icons.SERVER, Theme.ACCENT, "lagfinder.gui.tps_title", "lagfinder.gui.tps_text", null),
-        FPS(ScanFocus.LAG, Icons.MONITOR, 0xFFB37FEB, "lagfinder.gui.fps_title", "lagfinder.gui.fps_text", null),
-        METHODS(ScanFocus.METHODS, Icons.WRENCH, 0xFFFF8C42, "lagfinder.gui.methods_title",
-            "lagfinder.gui.methods_text", "lagfinder.gui.methods_help"),
-        OBJECTS(ScanFocus.OBJECTS, Icons.CUBE, 0xFF3FB950, "lagfinder.gui.objects_title", "lagfinder.gui.objects_text",
-            "lagfinder.gui.objects_help"),
-        ALLOCATIONS(ScanFocus.ALLOCATIONS, Icons.ALLOCATIONS, 0xFF39C5CF, "lagfinder.gui.alloc_title",
-            "lagfinder.gui.alloc_text", "lagfinder.gui.alloc_help"),
-        STEADY(ScanFocus.STEADY, Icons.CLOCK, 0xFF72C9A5, "lagfinder.gui.steady_title", "lagfinder.gui.steady_text",
-            null);
-
-        final ScanFocus focus;
-        final String[] icon;
-        /** The kind's own color, as in the saved logs. */
-        final int color;
-        final String title, text;
-        /** What the "?" after the title tells, or null for none. */
-        final String help;
-
-        Card(ScanFocus focus, String[] icon, int color, String title, String text, String help) {
-            this.focus = focus;
-            this.icon = icon;
-            this.color = color;
-            this.title = title;
-            this.text = text;
-            this.help = help;
-        }
-    }
-
-    /** The choices stay while the game runs. */
-    private static ScanSide chosenSide = ScanSide.SERVER;
-    /** Both sides were picked for a deeper scan before a lag card: picked again on going back to one. */
-    private static boolean bothKept;
-    private static ScanFocus chosenFocus = ScanFocus.LAG;
     private static int chosenSeconds = 30;
     /** What a tick scan's log leaves out: what took less, by average or at its worst tick; null shows everything. */
     private static LagFilter.By chosenFilter;
@@ -102,23 +57,19 @@ public class GuiLagFinder extends GuiWindow {
     /** A tick scan measures one tick in a few: the server barely slows down. */
     private static boolean chosenLight = true;
     /** A log closed with Esc: the key opens it again, instead of this window, so the search can go on. */
-    private static GuiScreen reopen;
+    private static Screen reopen;
 
     private FlatButton startButton, openButton;
-    private final FlatButton[] sideButtons = new FlatButton[ScanSide.values().length];
     private TimeSlider slider;
-    /** The filter of a tick scan: it can be set only while the tick scan is picked. */
     private FlatButton averageButton, peakButton;
-    /** How a tick scan measures: it can be set only while the tick scan is picked. */
     private FlatButton lightButton, fullButton, allButton;
     private TimeSlider filterSlider;
     private FlatTextField timeField;
     /** What was typed in the time box can't be read as a time. */
     private boolean timeInvalid;
-    private final Smooth[] cardLight = { new Smooth(0), new Smooth(0), new Smooth(0), new Smooth(0), new Smooth(0),
-        new Smooth(0) };
+    private final Smooth cardLight = new Smooth(0);
     private final Smooth shownProgress = new Smooth(0);
-    private int whatY, sideY, durationY, filterY, statusY, buttonsY;
+    private int whatY, durationY, filterY, statusY, buttonsY;
 
     public GuiLagFinder() {
         ClientScanner.INSTANCE.query();
@@ -131,27 +82,12 @@ public class GuiLagFinder extends GuiWindow {
 
     @Override
     protected void layOut() {
-        Keyboard.enableRepeatEvents(true);
         whatY = contentTop;
-        sideY = whatY + WHAT_HEIGHT + SECTION_GAP;
-        durationY = sideY + WHERE_HEIGHT + SECTION_GAP;
+        durationY = whatY + WHAT_HEIGHT + SECTION_GAP;
         filterY = durationY + SLIDER_HEIGHT + SECTION_GAP;
         statusY = filterY + FILTER_HEIGHT + SECTION_GAP;
         buttonsY = statusY + STATUS_HEIGHT + SECTION_GAP;
 
-        int inner = contentRight - contentLeft - 16;
-        String[][] sideIcons = { Icons.SERVER, Icons.MONITOR, Icons.SMALL_LINK };
-        String[] sideLabels = { "lagfinder.gui.side_server", "lagfinder.gui.side_client", "lagfinder.gui.side_both" };
-        int sideWidth = (inner - 2 * 8) / 3;
-        for (ScanSide side : ScanSide.values()) {
-            int i = side.ordinal();
-            int x = contentLeft + 8 + i * (sideWidth + 8);
-            int w = i == sideButtons.length - 1 ? contentRight - 8 - x : sideWidth;
-            sideButtons[i] = new FlatButton(ID_SIDE + i, x, sideY + 20, w, 18, I18n.format(sideLabels[i]));
-            sideButtons[i].icon = sideIcons[i];
-            sideButtons[i].iconSlot = 11;
-            buttonList.add(sideButtons[i]);
-        }
         String[] labels = new String[MARKS.length];
         for (int i = 0; i < MARKS.length; i++) {
             labels[i] = shortLabel(MARKS[i]);
@@ -203,7 +139,7 @@ public class GuiLagFinder extends GuiWindow {
             h -> chosenFilterHundredths = h);
         filterSlider.round = true;
         filterSlider.setStep(h -> h < 100 ? 1 : h < 1000 ? 10 : 50);
-        filterSlider.setFormat(h -> filterLabel(h) + " " + I18n.format("lagfinder.unit.ms"));
+        filterSlider.setFormat(h -> filterLabel(h) + " " + I18n.get("lagfinder.unit.ms"));
 
         int startWidth = (contentRight - contentLeft - 8) * 5 / 12;
         startButton = new FlatButton(ID_START, contentLeft, buttonsY, startWidth, 20, "");
@@ -215,7 +151,7 @@ public class GuiLagFinder extends GuiWindow {
             buttonsY,
             contentRight - contentLeft - startWidth - 8,
             20,
-            I18n.format("lagfinder.gui.open_report"));
+            I18n.get("lagfinder.gui.open_report"));
         openButton.icon = Icons.STATS;
         buttonList.add(openButton);
         refresh();
@@ -224,21 +160,16 @@ public class GuiLagFinder extends GuiWindow {
     private int segmentWidth(int least, String[] keys) {
         int width = least;
         for (String key : keys) {
-            width = Math.max(width, fontRendererObj.getStringWidth(I18n.format(key)) + SEGMENT_PADDING);
+            width = Math.max(width, fontRendererObj.getStringWidth(I18n.get(key)) + SEGMENT_PADDING);
         }
         return width;
     }
 
     private FlatButton segment(int id, int x, int y, int width, String key) {
-        FlatButton button = new FlatButton(id, x, y, width, SEGMENT_HEIGHT, I18n.format(key));
+        FlatButton button = new FlatButton(id, x, y, width, SEGMENT_HEIGHT, I18n.get(key));
         button.segment = true;
         buttonList.add(button);
         return button;
-    }
-
-    @Override
-    public void onGuiClosed() {
-        Keyboard.enableRepeatEvents(false);
     }
 
     /** A least time as written on the filter's slider (hundredths of a millisecond): "0.05", "1", "2.5". */
@@ -252,15 +183,12 @@ public class GuiLagFinder extends GuiWindow {
 
     /** What the next tick scan's log leaves out, null for nothing. */
     private static LagFilter filter() {
-        return chosenCard() == Card.TPS && chosenFilter != null
-            ? new LagFilter(chosenFilter, chosenFilterHundredths / 100.0)
-            : null;
+        return chosenFilter != null ? new LagFilter(chosenFilter, chosenFilterHundredths / 100.0) : null;
     }
 
     /** A mark's label: "10s", "1m". */
     private static String shortLabel(int seconds) {
-        return seconds < 60 ? seconds + I18n.format("lagfinder.unit.s")
-            : seconds / 60 + I18n.format("lagfinder.unit.m");
+        return seconds < 60 ? seconds + I18n.get("lagfinder.unit.s") : seconds / 60 + I18n.get("lagfinder.unit.m");
     }
 
     /** A length as written in the time box: "45s", "2m", "1m 30s". */
@@ -268,7 +196,7 @@ public class GuiLagFinder extends GuiWindow {
         if (seconds < 60 || seconds % 60 == 0) {
             return shortLabel(seconds);
         }
-        return seconds / 60 + I18n.format("lagfinder.unit.m") + " " + seconds % 60 + I18n.format("lagfinder.unit.s");
+        return seconds / 60 + I18n.get("lagfinder.unit.m") + " " + seconds % 60 + I18n.get("lagfinder.unit.s");
     }
 
     private static final Pattern CLOCK = Pattern.compile("(\\d{1,3}):(\\d{1,2})");
@@ -335,86 +263,33 @@ public class GuiLagFinder extends GuiWindow {
         timeInvalid = false;
     }
 
-    private static Card chosenCard() {
-        switch (chosenFocus) {
-            case METHODS:
-                return Card.METHODS;
-            case OBJECTS:
-                return Card.OBJECTS;
-            case ALLOCATIONS:
-                return Card.ALLOCATIONS;
-            case STEADY:
-                return Card.STEADY;
-            default:
-                return chosenSide == ScanSide.CLIENT ? Card.FPS : Card.TPS;
-        }
-    }
-
-    private static void choose(Card card) {
-        chosenFocus = card.focus;
-        if (card == Card.STEADY) {
-            chosenSide = ScanSide.SERVER;
-            bothKept = false;
-            if (chosenSeconds < 120) {
-                chosenSeconds = 300;
-            }
-            return;
-        }
-        if (card == Card.TPS || card == Card.FPS) {
-            // A lag card scans one side only.
-            bothKept |= chosenSide == ScanSide.BOTH;
-            chosenSide = card == Card.TPS ? ScanSide.SERVER : ScanSide.CLIENT;
-            return;
-        }
-        if (bothKept) {
-            bothKept = false;
-            chosenSide = ScanSide.BOTH;
-        }
-        if (chosenSide.server() && !ClientScanner.INSTANCE.serverAllowed()) {
-            // Only this client can be scanned here.
-            chosenSide = ScanSide.CLIENT;
-        }
-    }
-
     /** Puts the buttons in line with the scan's state. */
     private void refresh() {
         ClientScanner scanner = ClientScanner.INSTANCE;
         boolean active = scanner.isActive();
-        for (FlatButton button : sideButtons) {
-            button.active = button.id - ID_SIDE == chosenSide.ordinal();
-            // Ticks and frames are scanned apart: both at once only for methods, objects and allocations.
-            boolean both = button.id - ID_SIDE == ScanSide.BOTH.ordinal();
-            boolean steady = chosenFocus == ScanFocus.STEADY;
-            button.enabled = !active && !(both && chosenFocus == ScanFocus.LAG)
-                && (!steady || button.id - ID_SIDE == ScanSide.SERVER.ordinal());
-        }
         slider.enabled = !active;
         timeField.setEnabled(!active);
-        // The filter is for tick scans only: grey for the others.
-        boolean tickScan = chosenCard() == Card.TPS;
-        averageButton.active = tickScan && chosenFilter == LagFilter.By.AVERAGE;
-        peakButton.active = tickScan && chosenFilter == LagFilter.By.PEAK;
-        averageButton.enabled = peakButton.enabled = !active && tickScan;
-        // Grey, and not to be moved, until it is said what the time is compared with.
-        filterSlider.enabled = !active && tickScan && chosenFilter != null;
-        lightButton.visible = fullButton.visible = allButton.visible = tickScan;
+        averageButton.active = chosenFilter == LagFilter.By.AVERAGE;
+        peakButton.active = chosenFilter == LagFilter.By.PEAK;
+        averageButton.enabled = peakButton.enabled = !active;
+        filterSlider.enabled = !active && chosenFilter != null;
         lightButton.active = chosenLight;
         fullButton.active = !chosenLight;
         allButton.active = chosenFilter == null;
         allButton.outlined = true;
-        lightButton.enabled = fullButton.enabled = allButton.enabled = !active && tickScan;
+        lightButton.enabled = fullButton.enabled = allButton.enabled = !active;
         if (active && timeField.isFocused()) {
             leaveTimeField();
         }
         if (active) {
-            startButton.displayString = I18n.format("lagfinder.gui.cancel");
+            startButton.displayString = I18n.get("lagfinder.gui.cancel");
             startButton.icon = Icons.CLOSE;
             startButton.iconColor = Theme.DANGER;
             startButton.danger = true;
             startButton.active = false;
             startButton.enabled = scanner.phase() != ClientScanner.Phase.RECEIVING;
         } else {
-            startButton.displayString = I18n.format("lagfinder.gui.start") + "  \u00b7  " + formatTime(chosenSeconds);
+            startButton.displayString = I18n.get("lagfinder.gui.start") + "  ·  " + formatTime(chosenSeconds);
             startButton.icon = Icons.PLAY;
             startButton.iconColor = 0;
             startButton.danger = false;
@@ -427,31 +302,19 @@ public class GuiLagFinder extends GuiWindow {
 
     private boolean canStart() {
         ClientScanner scanner = ClientScanner.INSTANCE;
-        if (timeInvalid) {
-            return false;
-        }
-        if (chosenSide.client() && mc.theWorld == null) {
-            return false;
-        }
-        if (scanner.serverHasMod() && !scanner.serverAllowed()) {
-            return false;
-        }
-        if (chosenFocus == ScanFocus.STEADY && chosenSide != ScanSide.SERVER) {
-            return false;
-        }
-        return !chosenSide.server() || scanner.serverAllowed() && !scanner.serverBusy();
+        return !timeInvalid && scanner.serverAllowed() && !scanner.serverBusy();
     }
 
     /** What the key opens: the log closed last with Esc, or this window. */
-    public static GuiScreen toOpen() {
-        GuiScreen screen = reopen;
+    public static Screen toOpen() {
+        Screen screen = reopen;
         reopen = null;
         return screen != null ? screen : new GuiLagFinder();
     }
 
     /** Closes a log to the game; the key opens it again as it was. */
-    static void closeToGame(Minecraft mc, GuiScreen log) {
-        mc.displayGuiScreen(null);
+    static void closeToGame(Minecraft mc, Screen log) {
+        mc.setScreen(null);
         reopen = log;
     }
 
@@ -460,20 +323,10 @@ public class GuiLagFinder extends GuiWindow {
         reopen = null;
     }
 
-    /** Opens the report in the window that suits what its scan was for. */
+    /** Opens the report in its window. */
     static void open(Minecraft mc, Report report) {
         ClientScanner.INSTANCE.markSeen();
-        if (report.focus == ScanFocus.STEADY && report.mode == ScanMode.TPS) {
-            mc.displayGuiScreen(new GuiSteadyReport(report));
-        } else if (report.focus == ScanFocus.METHODS && report.profile != null) {
-            mc.displayGuiScreen(new GuiMethods(report));
-        } else if (report.focus == ScanFocus.OBJECTS && report.memory != null) {
-            mc.displayGuiScreen(new GuiMemory(report));
-        } else if (report.focus == ScanFocus.ALLOCATIONS && report.allocations != null) {
-            mc.displayGuiScreen(new GuiAllocations(report));
-        } else {
-            mc.displayGuiScreen(new GuiReport(report));
-        }
+        mc.setScreen(new GuiReport(report));
     }
 
     @Override
@@ -486,25 +339,14 @@ public class GuiLagFinder extends GuiWindow {
             if (scanner.isActive()) {
                 scanner.cancel();
             } else if (canStart()) {
-                scanner
-                    .start(chosenSide, chosenFocus, chosenSeconds, filter(), chosenCard() == Card.TPS && chosenLight);
-                if (chosenSide.client() && scanner.isActive()) {
-                    // Frames are measured while playing: this window would only be in the way.
-                    mc.displayGuiScreen(null);
-                    return;
-                }
+                scanner.start(chosenSeconds, filter(), chosenLight);
             }
         } else if (button.id == ID_OPEN && scanner.report() != null) {
             open(mc, scanner.report());
             return;
-        } else if (button.id >= ID_SIDE && button.id < ID_SIDE + sideButtons.length) {
-            // The lag cards follow the side: the server's ticks or this client's frames.
-            chosenSide = ScanSide.values()[button.id - ID_SIDE];
-            bothKept = false;
         } else if (button.id == ID_MODE_LIGHT || button.id == ID_MODE_FULL) {
             chosenLight = button.id == ID_MODE_LIGHT;
         } else if (button.id == ID_FILTER_AVERAGE || button.id == ID_FILTER_PEAK) {
-            // A click on the one picked turns the filter off: the log shows everything.
             LagFilter.By by = button.id == ID_FILTER_AVERAGE ? LagFilter.By.AVERAGE : LagFilter.By.PEAK;
             chosenFilter = chosenFilter == by ? null : by;
         } else if (button.id == ID_FILTER_ALL) {
@@ -520,7 +362,6 @@ public class GuiLagFinder extends GuiWindow {
         if (wasFocused && !timeField.isFocused()) {
             leaveTimeField();
         } else if (button == 1 && timeField.isMouseOver(mouseX, mouseY)) {
-            // Cleared by a right click: something new is being typed.
             timeInvalid = true;
         }
         clickButtons(mouseX, mouseY, button);
@@ -530,16 +371,7 @@ public class GuiLagFinder extends GuiWindow {
         if (slider.mousePressed(fontRendererObj, mouseX, mouseY)) {
             return;
         }
-        if (chosenCard() == Card.TPS && filterSlider.mousePressed(fontRendererObj, mouseX, mouseY)) {
-            return;
-        }
-        for (Card card : Card.values()) {
-            int x0 = cardX(card), y0 = cardY(card);
-            if (usable(card) && Theme.inside(mouseX, mouseY, x0, y0, x0 + cardWidth(card), y0 + cardHeight(card))) {
-                choose(card);
-                refresh();
-            }
-        }
+        filterSlider.mousePressed(fontRendererObj, mouseX, mouseY);
     }
 
     @Override
@@ -557,72 +389,33 @@ public class GuiLagFinder extends GuiWindow {
             refresh();
             return;
         }
-        if (typedChar >= '1' && typedChar < '1' + Card.values().length && !ClientScanner.INSTANCE.isActive()) {
-            // The number on a card picks it.
-            Card card = Card.values()[typedChar - '1'];
-            if (usable(card)) {
-                choose(card);
-                refresh();
-            }
-            return;
-        }
         if ((keyCode == Keyboard.KEY_RETURN || keyCode == Keyboard.KEY_NUMPADENTER) && startButton.enabled) {
-            // Enter does what the big button does: start, or cancel the scan running.
             pressed(startButton);
             return;
         }
-        if (keyCode == Keyboard.KEY_ESCAPE || keyCode == mc.gameSettings.keyBindInventory.getKeyCode()
-            || keyCode == KeyHandler.OPEN.getKeyCode()) {
-            mc.displayGuiScreen(null);
+        if (keyCode == Keyboard.KEY_ESCAPE || mc.options.keyInventory.matches(keyCode, 0)
+            || KeyHandler.isOpenKey(keyCode)) {
+            mc.setScreen(null);
         }
-    }
-
-    /** The lag scans side by side on the first row; the three deeper looks on the second. */
-    private static int row(Card card) {
-        return card.ordinal() < 3 ? 0 : 1;
-    }
-
-    private static int column(Card card) {
-        return card.ordinal() < 3 ? card.ordinal() : card.ordinal() - 3;
-    }
-
-    private int cardWidth(Card card) {
-        return (contentRight - contentLeft - 12 - 2 * CARD_GAP) / 3;
-    }
-
-    private static int cardHeight(Card card) {
-        return row(card) == 0 ? CARD_HEIGHT : SMALL_CARD_HEIGHT;
-    }
-
-    private int cardX(Card card) {
-        return contentLeft + 6 + column(card) * (cardWidth(card) + CARD_GAP);
-    }
-
-    private int cardY(Card card) {
-        return whatY + 20 + row(card) * (CARD_HEIGHT + CARD_GAP);
     }
 
     @Override
     public void updateScreen() {
-        timeField.updateCursorCounter();
         refresh();
     }
 
     @Override
     protected void drawContent(int mouseX, int mouseY, float partialTicks) {
         refresh();
-        section(contentLeft, whatY, contentRight, whatY + WHAT_HEIGHT, Icons.SCAN, I18n.format("lagfinder.gui.what"));
-        for (Card card : Card.values()) {
-            drawCard(card, mouseX, mouseY);
-        }
-        section(contentLeft, sideY, contentRight, sideY + WHERE_HEIGHT, Icons.PIN, I18n.format("lagfinder.gui.side"));
+        section(contentLeft, whatY, contentRight, whatY + WHAT_HEIGHT, Icons.SCAN, I18n.get("lagfinder.gui.what"));
+        drawCard(mouseX, mouseY);
         section(
             contentLeft,
             durationY,
             contentRight,
             durationY + SLIDER_HEIGHT,
             Icons.SMALL_CLOCK,
-            I18n.format("lagfinder.gui.duration"));
+            I18n.get("lagfinder.gui.duration"));
         slider.draw(fontRendererObj, mouseX, mouseY);
         timeField.drawTextBox();
         if (timeInvalid) {
@@ -637,13 +430,12 @@ public class GuiLagFinder extends GuiWindow {
         drawStatus();
     }
 
-    /** The filter's title, its slider and the least time it shows: grey while it is off, or not for this scan. */
+    /** The filter's title, its slider and the least time it shows: grey while it is off. */
     private void drawFilter(int mouseX, int mouseY) {
-        boolean tickScan = chosenCard() == Card.TPS;
-        boolean on = tickScan && chosenFilter != null;
-        String subtitle = I18n.format("lagfinder.gui.filter");
+        boolean on = chosenFilter != null;
+        String subtitle = I18n.get("lagfinder.gui.filter");
         if (on) {
-            subtitle += "  \u00b7  " + filterLabel(chosenFilterHundredths) + " " + I18n.format("lagfinder.unit.ms");
+            subtitle += "  ·  " + filterLabel(chosenFilterHundredths) + " " + I18n.get("lagfinder.unit.ms");
         }
         section(
             contentLeft,
@@ -651,20 +443,10 @@ public class GuiLagFinder extends GuiWindow {
             contentRight,
             filterY + FILTER_HEIGHT,
             Icons.FUNNEL,
-            I18n.format("lagfinder.gui.filter_title"),
+            I18n.get("lagfinder.gui.filter_title"),
             subtitle);
-        if (!tickScan) {
-            String only = I18n.format("lagfinder.gui.filter_tps_only");
-            fontRendererObj.drawString(
-                only,
-                contentRight - 8 - fontRendererObj.getStringWidth(only),
-                filterY + 6,
-                Theme.TEXT_DISABLED);
-        }
         segmentGroup(averageButton, peakButton);
-        if (tickScan) {
-            segmentGroup(lightButton, fullButton, allButton);
-        }
+        segmentGroup(lightButton, fullButton, allButton);
         filterSlider.draw(fontRendererObj, mouseX, mouseY);
     }
 
@@ -681,21 +463,6 @@ public class GuiLagFinder extends GuiWindow {
         }
     }
 
-    /** Where the "?" of a card is, after its title. */
-    private int helpX(Card card) {
-        String title = Theme.ellipsize(fontRendererObj, I18n.format(card.title), cardWidth(card) - 56);
-        return cardX(card) + 26 + fontRendererObj.getStringWidth(title) + 5;
-    }
-
-    private boolean overHelp(Card card, int mouseX, int mouseY) {
-        if (card.help == null) {
-            return false;
-        }
-        int x = helpX(card), y = cardY(card) + 6;
-        return Theme.inside(mouseX, mouseY, x - 1, y - 1, x + 10, y + 10);
-    }
-
-    /** What a button will do, when that isn't plain from it. */
     @Override
     protected void drawOver(int mouseX, int mouseY) {
         String text = tooltipText(mouseX, mouseY);
@@ -706,47 +473,30 @@ public class GuiLagFinder extends GuiWindow {
 
     private String tooltipText(int mouseX, int mouseY) {
         ClientScanner scanner = ClientScanner.INSTANCE;
-        for (Card card : Card.values()) {
-            if (overHelp(card, mouseX, mouseY)) {
-                return I18n.format(card.title) + "\n" + I18n.format(card.help);
-            }
-        }
         if (openButton.isMouseOver(mouseX, mouseY) && scanner.report() != null) {
-            return I18n.format(scanner.hasUnseenReport() ? "lagfinder.tip.open_new" : "lagfinder.tip.open_last") + "\n"
+            return I18n.get(scanner.hasUnseenReport() ? "lagfinder.tip.open_new" : "lagfinder.tip.open_last") + "\n"
                 + summary(scanner.report());
         }
-        if (chosenCard() != Card.TPS) {
-            boolean overFilter = Theme
-                .inside(mouseX, mouseY, contentLeft, filterY, contentRight, filterY + FILTER_HEIGHT);
-            return overFilter ? I18n.format("lagfinder.tip.filter_tps_only") : bothTip(mouseX, mouseY);
-        }
         if (averageButton.isMouseOver(mouseX, mouseY)) {
-            return I18n.format("lagfinder.tip.filter_avg");
+            return I18n.get("lagfinder.tip.filter_avg");
         }
         if (peakButton.isMouseOver(mouseX, mouseY)) {
-            return I18n.format("lagfinder.tip.filter_peak");
+            return I18n.get("lagfinder.tip.filter_peak");
         }
         if (lightButton.isMouseOver(mouseX, mouseY)) {
-            return I18n.format("lagfinder.tip.mode_light");
+            return I18n.get("lagfinder.tip.mode_light");
         }
         if (fullButton.isMouseOver(mouseX, mouseY)) {
-            return I18n.format("lagfinder.tip.mode_full");
+            return I18n.get("lagfinder.tip.mode_full");
         }
         if (allButton.isMouseOver(mouseX, mouseY)) {
-            return I18n.format("lagfinder.tip.filter_off");
+            return I18n.get("lagfinder.tip.filter_off");
         }
         if (chosenFilter == null
             && Theme.inside(mouseX, mouseY, contentLeft + 8, filterY + 24, contentRight - 8, filterY + FILTER_HEIGHT)) {
-            return I18n.format("lagfinder.tip.filter_off");
+            return I18n.get("lagfinder.tip.filter_off");
         }
-        return bothTip(mouseX, mouseY);
-    }
-
-    /** Why both sides can't be picked for a lag scan, under the mouse. */
-    private String bothTip(int mouseX, int mouseY) {
-        FlatButton both = sideButtons[ScanSide.BOTH.ordinal()];
-        return both.isMouseOver(mouseX, mouseY) && chosenFocus == ScanFocus.LAG ? I18n.format("lagfinder.tip.both_lag")
-            : null;
+        return null;
     }
 
     /** Why the server's ticks can't be scanned, or null when they can. */
@@ -761,53 +511,28 @@ public class GuiLagFinder extends GuiWindow {
         return null;
     }
 
-    /** Whether the card can be picked here: the server's ticks only on a server that lets the player scan them. */
-    private static boolean usable(Card card) {
-        return card != Card.TPS && card != Card.STEADY || ClientScanner.INSTANCE.serverAllowed();
-    }
-
-    private void drawCard(Card card, int mouseX, int mouseY) {
-        ClientScanner scanner = ClientScanner.INSTANCE;
-        int x0 = cardX(card), x1 = x0 + cardWidth(card), y0 = cardY(card), y1 = y0 + cardHeight(card);
-        boolean chosen = chosenCard() == card;
-        boolean usable = usable(card);
-        boolean hovered = usable && !scanner.isActive() && Theme.inside(mouseX, mouseY, x0, y0, x1, y1);
-        double lit = cardLight[card.ordinal()].update(hovered ? 1 : 0, 22);
-        int color = card.color | 0xFF000000;
-        int background = chosen ? Theme.blend(0xFF0F2545, color, 0.06) : Theme.blend(0xFF101D33, 0xFF14243F, lit);
-        int border = chosen ? color : Theme.blend(0xFF213450, Theme.blend(0xFF213450, color, 0.6), lit);
-        Theme.roundBox(x0, y0, x1, y1, background, border);
-        if (chosen) {
-            Theme.roundOutline(x0 + 1, y0 + 1, x1 - 1, y1 - 1, color);
-        }
+    /** What is scanned: the server's ticks, with what keeps it from being scanned, if anything. */
+    private void drawCard(int mouseX, int mouseY) {
+        int x0 = contentLeft + 6, x1 = contentRight - 6, y0 = whatY + 20, y1 = y0 + CARD_HEIGHT;
+        boolean usable = ClientScanner.INSTANCE.serverAllowed();
+        double lit = cardLight.update(usable && Theme.inside(mouseX, mouseY, x0, y0, x1, y1) ? 1 : 0, 22);
+        int color = TPS_COLOR;
+        Theme.roundBox(x0, y0, x1, y1, Theme.blend(0xFF0F2545, color, 0.06 + 0.04 * lit), color);
+        Theme.roundOutline(x0 + 1, y0 + 1, x1 - 1, y1 - 1, color);
         int boxX = x1 - 15, boxY = y0 + 6;
-        if (chosen) {
-            Theme.roundRect(boxX, boxY, boxX + 10, boxY + 10, color);
-            Icons.draw(Icons.SMALL_CHECK, boxX + 2, boxY + 2, Theme.TEXT);
-        } else {
-            int edge = Theme.blend(0xFF5D6F8A, 0xFF8696AE, lit);
-            Theme.roundBox(boxX, boxY, boxX + 10, boxY + 10, 0xFF0B1526, edge);
-        }
-        int iconColor = usable ? color : Theme.TEXT_DISABLED;
-        Icons.draw(card.icon, x0 + 9 + (11 - Icons.width(card.icon)) / 2, y0 + 7, iconColor);
+        Theme.roundRect(boxX, boxY, boxX + 10, boxY + 10, usable ? color : Theme.TEXT_DISABLED);
+        Icons.draw(Icons.SMALL_CHECK, boxX + 2, boxY + 2, Theme.TEXT);
+        Icons.draw(Icons.SERVER, x0 + 9, y0 + 7, usable ? color : Theme.TEXT_DISABLED);
         fontRendererObj.drawString(
-            Theme.ellipsize(fontRendererObj, I18n.format(card.title), x1 - x0 - 56),
+            Theme.ellipsize(fontRendererObj, I18n.get("lagfinder.gui.tps_title"), x1 - x0 - 56),
             x0 + 26,
             y0 + 8,
             usable ? Theme.TEXT : Theme.TEXT_DISABLED);
-        if (card.help != null) {
-            boolean overHelp = overHelp(card, mouseX, mouseY);
-            Icons.draw(
-                Icons.HELP,
-                helpX(card),
-                y0 + 6,
-                overHelp ? Theme.ACCENT : Theme.blend(Theme.TEXT_DISABLED, Theme.TEXT_MUTED, 0.5 + 0.5 * lit));
-        }
-        String description = I18n.format(card.text);
+        String description = I18n.get("lagfinder.gui.tps_text");
         int descriptionColor = 0xFFA3B1C6;
         String problem = serverProblem();
-        if ((card == Card.TPS || card == Card.STEADY) && problem != null) {
-            description = I18n.format(problem);
+        if (problem != null) {
+            description = I18n.get(problem);
             descriptionColor = WARN;
         }
         int textWidth = x1 - x0 - 26 - 7;
@@ -834,19 +559,18 @@ public class GuiLagFinder extends GuiWindow {
             String right;
             switch (scanner.phase()) {
                 case REQUESTED:
-                    title = I18n.format("lagfinder.status.starting");
+                    title = I18n.get("lagfinder.status.starting");
                     right = "";
                     break;
                 case RECEIVING:
-                    title = I18n.format("lagfinder.status.receiving");
+                    title = I18n.get("lagfinder.status.receiving");
                     right = Math.round(progress * 100) + "%";
                     break;
                 default:
-                    title = I18n.format(runningKey(scanner.side(), scanner.focus()));
-                    right = I18n.format("lagfinder.status.left", Names.clock(scanner.secondsLeft()));
+                    title = I18n.get("lagfinder.status.running_tps");
+                    right = I18n.get("lagfinder.status.left", Names.clock(scanner.secondsLeft()));
             }
             Icons.draw(Icons.SMALL_CLOCK, x0 + 7, y0 + 7, Theme.ACCENT);
-            // Something the server said meanwhile (the scan shortened to what it allows) shows in place of the title.
             String said = message != null ? scanner.messageText() : null;
             fontRendererObj.drawString(
                 Theme.ellipsize(
@@ -860,15 +584,13 @@ public class GuiLagFinder extends GuiWindow {
             int barX0 = x0 + 7, barX1 = x1 - 7, barY = y0 + 20;
             Theme.fill(barX0, barY, barX1, barY + 8, 0xFF0A1424);
             int filled = barX0 + (int) Math.round((barX1 - barX0) * Math.max(0, Math.min(1, shown)));
-            int color = chosenCardColor(scanner.side(), scanner.focus());
             Draw.gradientRect(
                 barX0,
                 barY,
                 filled,
                 barY + 8,
-                Theme.blend(color, 0xFFFFFFFF, 0.3),
-                Theme.blend(color, 0xFF000000, 0.35));
-            // Stripes sliding along the bar, so it is seen to be alive.
+                Theme.blend(TPS_COLOR, 0xFFFFFFFF, 0.3),
+                Theme.blend(TPS_COLOR, 0xFF000000, 0.35));
             if (filled - barX0 > 4) {
                 Theme.clip(barX0, barY, filled, barY + 8);
                 int shift = (int) (System.currentTimeMillis() / 60 % 12);
@@ -890,56 +612,39 @@ public class GuiLagFinder extends GuiWindow {
         }
         if (timeInvalid) {
             warning(
-                I18n.format("lagfinder.status.bad_time", formatTime(MIN_SECONDS), formatTime(MAX_SECONDS)),
+                I18n.get("lagfinder.status.bad_time", formatTime(MIN_SECONDS), formatTime(MAX_SECONDS)),
                 x0,
                 y0,
                 x1);
             return;
         }
-        if (chosenSide.server() && serverProblem() != null) {
-            warning(I18n.format(serverProblem()), x0, y0, x1);
+        if (serverProblem() != null) {
+            warning(I18n.get(serverProblem()), x0, y0, x1);
             return;
         }
         int serverMax = scanner.serverMaxSeconds();
-        if (chosenSide.server() && serverMax > 0 && chosenSeconds > serverMax) {
-            // Said before starting, not cut short without a word.
-            warning(I18n.format("lagfinder.status.server_max", formatTime(serverMax)), x0, y0, x1);
+        if (serverMax > 0 && chosenSeconds > serverMax) {
+            warning(I18n.get("lagfinder.status.server_max", formatTime(serverMax)), x0, y0, x1);
             return;
         }
         Report report = scanner.report();
         if (report != null && scanner.hasUnseenReport()) {
             String line = summary(report);
             Theme.checkCircle(x0 + 8, y0 + 7, Theme.SUCCESS, 0xFF0C1729);
-            fontRendererObj.drawString(I18n.format("lagfinder.status.done"), x0 + 25, y0 + 7, Theme.SUCCESS);
+            fontRendererObj.drawString(I18n.get("lagfinder.status.done"), x0 + 25, y0 + 7, Theme.SUCCESS);
             fontRendererObj
                 .drawString(Theme.ellipsize(fontRendererObj, line, x1 - x0 - 32), x0 + 25, y0 + 19, Theme.TEXT_MUTED);
             return;
         }
         Theme.checkCircle(x0 + 8, y0 + 7, Theme.ACCENT, 0xFF0C1729);
-        String ready = I18n.format("lagfinder.status.ready");
+        String ready = I18n.get("lagfinder.status.ready");
         fontRendererObj
             .drawString(Theme.ellipsize(fontRendererObj, ready, x1 - x0 - 32), x0 + 25, y0 + 7, Theme.ACCENT);
         fontRendererObj.drawString(
-            Theme.ellipsize(fontRendererObj, I18n.format(hintKey()), x1 - x0 - 32),
+            Theme.ellipsize(fontRendererObj, I18n.get("lagfinder.status.hint_tps"), x1 - x0 - 32),
             x0 + 25,
             y0 + 19,
             Theme.TEXT_MUTED);
-    }
-
-    /** The color of the card of what is scanned, for its progress bar. */
-    private static int chosenCardColor(ScanSide side, ScanFocus focus) {
-        switch (focus) {
-            case METHODS:
-                return Card.METHODS.color;
-            case OBJECTS:
-                return Card.OBJECTS.color;
-            case ALLOCATIONS:
-                return Card.ALLOCATIONS.color;
-            case STEADY:
-                return Card.STEADY.color;
-            default:
-                return side == ScanSide.CLIENT ? Card.FPS.color : Card.TPS.color;
-        }
     }
 
     private void warning(String text, int x0, int y0, int x1) {
@@ -950,72 +655,18 @@ public class GuiLagFinder extends GuiWindow {
         }
     }
 
-    private static String hintKey() {
-        switch (chosenFocus) {
-            case METHODS:
-                return "lagfinder.status.hint_methods";
-            case OBJECTS:
-                return "lagfinder.status.hint_objects";
-            case ALLOCATIONS:
-                return "lagfinder.status.hint_alloc";
-            case STEADY:
-                return "lagfinder.status.hint_steady";
-            default:
-                return chosenSide == ScanSide.CLIENT ? "lagfinder.status.hint_fps" : "lagfinder.status.hint_tps";
-        }
-    }
-
-    private static String runningKey(ScanSide side, ScanFocus focus) {
-        switch (focus) {
-            case METHODS:
-                return "lagfinder.status.running_methods";
-            case OBJECTS:
-                return "lagfinder.status.running_objects";
-            case ALLOCATIONS:
-                return "lagfinder.status.running_alloc";
-            case STEADY:
-                return "lagfinder.status.running_steady";
-            default:
-                return side == ScanSide.CLIENT ? "lagfinder.status.running_fps" : "lagfinder.status.running_tps";
-        }
-    }
-
-    /** What a scan was: "Tick scan", "Methods - server", "Objects - client", "Allocations - server". */
-    public static String kindName(ScanMode mode, ScanFocus focus) {
-        return kindName(ScanSide.of(mode), focus);
-    }
-
-    /** What a scan is: "Tick scan", "Frame scan", "Methods - server + client", "Objects - client". */
+    /** What a scan was: "Tick scan". */
     public static String kindName(ScanSide where, ScanFocus focus) {
-        if (focus == ScanFocus.STEADY) {
-            return I18n.format("lagfinder.mode.steady");
-        }
-        if (focus == ScanFocus.LAG) {
-            // Never both: ticks and frames are scanned apart.
-            return I18n.format(where == ScanSide.CLIENT ? "lagfinder.mode.fps" : "lagfinder.mode.tps");
-        }
-        String side = I18n.format(
-            where == ScanSide.SERVER ? "lagfinder.side.server"
-                : where == ScanSide.CLIENT ? "lagfinder.side.client" : "lagfinder.side.both");
-        String kind = focus == ScanFocus.METHODS ? "lagfinder.mode.methods"
-            : focus == ScanFocus.ALLOCATIONS ? "lagfinder.mode.alloc" : "lagfinder.mode.objects";
-        return I18n.format(kind) + " - " + side;
+        return I18n.get(where == ScanSide.CLIENT ? "lagfinder.mode.fps" : "lagfinder.mode.tps");
     }
 
     /** One line about a report: what it was, its length and rate. */
     static String summary(Report report) {
-        String rate = report.mode == ScanMode.TPS ? "TPS" : "FPS";
         return String.format(
-            "%s · %s · %s %.1f · min %.1f",
+            "%s · %s · TPS %.1f · min %.1f",
             kindName(report.side(), report.focus),
             Names.clock(report.durationSec),
-            rate,
             report.averageRate(),
             report.minimumRate());
-    }
-
-    @Override
-    public boolean doesGuiPauseGame() {
-        return false;
     }
 }
