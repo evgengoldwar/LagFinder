@@ -150,9 +150,7 @@ public final class StatReports {
     }
 
     private static void memoryWindow(ChatOut out, String label, Timeline.Span span, double max) {
-        out.stat(
-            label,
-            !span.hasValues() ? noData(out) : memorySpan(out, span, max));
+        out.stat(label, !span.hasValues() ? noData(out) : memorySpan(out, span, max));
     }
 
     private static IChatComponent memorySpan(ChatOut out, Timeline.Span span, double max) {

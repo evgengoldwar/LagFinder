@@ -11,8 +11,8 @@ import lagfinder.client.ClientStats;
 import lagfinder.client.ClientStatsCommand;
 import lagfinder.client.Highlighter;
 import lagfinder.client.HudOverlay;
-import lagfinder.client.StatChat;
 import lagfinder.client.KeyHandler;
+import lagfinder.client.StatChat;
 import lagfinder.client.WorldMsOverlay;
 import lagfinder.network.Net;
 

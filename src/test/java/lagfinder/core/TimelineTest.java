@@ -45,8 +45,9 @@ public class TimelineTest {
     public void secondsNotRunThroughAreLeftOut() {
         Timeline timeline = new Timeline(10);
         timeline.add(SECOND, 5);
-        assertTrue(timeline.span(0, 0)
-            .isEmpty());
+        assertTrue(
+            timeline.span(0, 0)
+                .isEmpty());
         assertEquals(1, timeline.span(0, 5).seconds);
     }
 
@@ -58,8 +59,9 @@ public class TimelineTest {
         Timeline.Span span = timeline.span(0, 11);
         assertEquals(1, span.seconds);
         assertEquals(7, span.high, 1e-9);
-        assertFalse(timeline.span(1, 1)
-            .hasValues());
+        assertFalse(
+            timeline.span(1, 1)
+                .hasValues());
     }
 
     @Test
@@ -67,7 +69,8 @@ public class TimelineTest {
         Timeline timeline = new Timeline(10);
         timeline.add(SECOND, 5);
         timeline.clear();
-        assertTrue(timeline.span(0, 5)
-            .isEmpty());
+        assertTrue(
+            timeline.span(0, 5)
+                .isEmpty());
     }
 }

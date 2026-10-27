@@ -18,8 +18,10 @@ public final class StatChat {
     private static final int FIRST_ID = 0x4C460000;
     private static final int MAX_LINES = 64;
 
-    private final Method print = find(new String[] { "func_146234_a", "printChatMessageWithOptionalDeletion" },
-        IChatComponent.class, int.class);
+    private final Method print = find(
+        new String[] { "func_146234_a", "printChatMessageWithOptionalDeletion" },
+        IChatComponent.class,
+        int.class);
     private final Method delete = find(new String[] { "func_146242_c", "deleteChatLine" }, int.class);
     private int printed;
 
