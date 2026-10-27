@@ -45,6 +45,7 @@ public final class ServerScanner {
     private ProfileSession session;
     private UUID owner;
     private long tickStart;
+    private long tickBegan;
     /** Whether MinecraftServer.tick() marks the ticks (its mixin applied); the tick events do otherwise. */
     private volatile boolean tickHooked;
     /** Whether the worlds' ticks are marked around FML's world tick events (their mixin applied). */
@@ -348,6 +349,7 @@ public final class ServerScanner {
     }
 
     private void beginTick() {
+        tickBegan = System.nanoTime();
         ticked = true;
         runTasks();
         sendParts();
@@ -371,10 +373,14 @@ public final class ServerScanner {
     }
 
     private void endTick() {
+        long now = System.nanoTime();
+        if (tickBegan != 0) {
+            ServerStats.INSTANCE.tick(tickBegan, now);
+            tickBegan = 0;
+        }
         if (session == null || tickStart == 0) {
             return;
         }
-        long now = System.nanoTime();
         if (tickHooked && worldHooked) {
             // What no hook measured: the server's own work outside the worlds and the events. Only known when the
             // tick and the worlds are marked around all of it, not from inside LagFinder's own tick handlers.

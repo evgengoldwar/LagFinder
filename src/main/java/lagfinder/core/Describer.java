@@ -31,6 +31,7 @@ import lagfinder.compat.Ae2Networks;
 import lagfinder.compat.EnderIoConduits;
 import lagfinder.compat.GregTechCovers;
 import lagfinder.compat.GregTechPipes;
+import lagfinder.compat.OpenComputersHosts;
 
 /**
  * Finds out what a measured thing is: its mod, its kind (the type it is counted under), its name, the item standing
@@ -97,6 +98,18 @@ public class Describer {
             case COVERS:
                 // Only GregTech's own code records these, so its classes are there.
                 GregTechCovers.describe(leaf);
+                break;
+            case OC_THREAD:
+                if (leaf.key instanceof TileEntity) {
+                    describeTile(leaf, (TileEntity) leaf.key);
+                } else if (leaf.key instanceof Entity) {
+                    describeEntity(leaf, (Entity) leaf.key);
+                } else {
+                    OpenComputersHosts.describe(leaf);
+                }
+                break;
+            case OC_SYNC:
+                OpenComputersHosts.describeCall(leaf);
                 break;
             case PIPE_NETWORKS:
                 if (leaf.pipePart == ProfileSession.PIPE_AE2) {

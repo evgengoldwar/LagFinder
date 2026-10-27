@@ -21,6 +21,7 @@ import lagfinder.core.ReportFiles;
 import lagfinder.core.ScanFocus;
 import lagfinder.server.ServerReports;
 import lagfinder.server.ServerScanner;
+import lagfinder.server.ServerStats;
 
 /**
  * The mod's channel. The client asks the server to start, cancel or report on a tick scan and to teleport it; the
@@ -155,6 +156,7 @@ public final class Net {
             @Override
             public IMessage onMessage(Query message, MessageContext ctx) {
                 EntityPlayerMP player = ctx.getServerHandler().playerEntity;
+                ServerStats.INSTANCE.markWithMod(player);
                 ServerScanner.INSTANCE.schedule(() -> ServerScanner.INSTANCE.sendStatus(player, null));
                 return null;
             }
