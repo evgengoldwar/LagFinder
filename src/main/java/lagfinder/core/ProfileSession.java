@@ -7,6 +7,7 @@ import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import net.minecraft.block.Block;
@@ -58,6 +59,14 @@ public final class ProfileSession {
         return null;
     }
 
+    public static ProfileSession serverFromAnyThread() {
+        ProfileSession session = server;
+        if (session != null && session.timesThings && session.mode == ScanMode.TPS && !session.closed) {
+            return session;
+        }
+        return null;
+    }
+
     public static void setServer(ProfileSession session) {
         server = session;
     }
@@ -101,6 +110,7 @@ public final class ProfileSession {
     private final Node[] roots = new Node[Category.values().length];
     @SuppressWarnings("unchecked")
     private final IdentityHashMap<Object, Node>[] leaves = new IdentityHashMap[Category.values().length];
+    private final IdentityHashMap<Node, long[]> computerStats = new IdentityHashMap<>();
     /** Block ticks by world, block and chunk. */
     private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> blockTicks = new IdentityHashMap<>();
     private final Map<World, IdentityHashMap<Object, HashMap<Long, Node>>> lightAt = new IdentityHashMap<>();
@@ -611,6 +621,57 @@ public final class ProfileSession {
         hits[category.ordinal()]++;
     }
 
+    void recordComputer(Object host, long runNanos, long waitNanos, long syncNanos) {
+        if (!timesThings || !measuring || closed) {
+            return;
+        }
+        if (runNanos > 0) {
+            record(Category.OC_THREAD, host, runNanos);
+        }
+        Node node = leaves[Category.OC_THREAD.ordinal()].get(host);
+        if (node == null) {
+            return;
+        }
+        long[] stats = computerStats.get(node);
+        if (stats == null) {
+            stats = new long[5];
+            computerStats.put(node, stats);
+        }
+        if (runNanos > 0) {
+            stats[0]++;
+            stats[1] += waitNanos;
+            stats[2] = Math.max(stats[2], waitNanos);
+        }
+        if (syncNanos > 0) {
+            stats[3]++;
+            stats[4] += syncNanos;
+        }
+    }
+
+    private void labelComputers() {
+        for (Map.Entry<Node, long[]> entry : computerStats.entrySet()) {
+            long[] stats = entry.getValue();
+            StringBuilder label = new StringBuilder();
+            if (stats[0] > 0) {
+                label.append(
+                    String.format(
+                        Locale.ROOT,
+                        "queue %.2f ms avg, %.1f ms max",
+                        stats[1] / (double) stats[0] / 1e6,
+                        stats[2] / 1e6));
+            }
+            if (stats[3] > 0) {
+                if (label.length() > 0) {
+                    label.append(" · ");
+                }
+                label.append(
+                    String
+                        .format(Locale.ROOT, "%d sync calls, %.1f ms on the server thread", stats[3], stats[4] / 1e6));
+            }
+            entry.getKey().label = label.length() > 0 ? label.toString() : null;
+        }
+    }
+
     /** A block's tick {@link #enter entered} at {@code start} ended: its own time is counted per block and chunk. */
     public void recordBlockTick(World world, Block block, int x, int y, int z, long start, long outer) {
         if (closed) {
@@ -797,6 +858,9 @@ public final class ProfileSession {
     public void endPeriod(long start, long nanos) {
         if (sampler != null) {
             sampler.setActive(false);
+        }
+        if (mode == ScanMode.TPS) {
+            ComputerWork.drain(this);
         }
         resolvePending();
         // In the scan's time: the pauses before it left out.
@@ -1196,6 +1260,7 @@ public final class ProfileSession {
                 describer.updateLocation(node);
             }
         }
+        labelComputers();
         try {
             knownDims.putAll(describer.dimensionNames());
         } catch (Throwable t) {
@@ -1235,6 +1300,7 @@ public final class ProfileSession {
             report.steadyP90TickMs = SteadyHistogram.percentile(steadyTickHistogram, totalPeriods, 0.9f);
         }
         report.spikeMs = spikeMs;
+        report.computerThreads = ComputerWork.threads();
         report.overheadSec = (float) Math.min(totalOverhead / 1e9, report.durationSec * 0.98);
         report.lowestSecond = lowestSecond;
         report.frameCap = frameCap;

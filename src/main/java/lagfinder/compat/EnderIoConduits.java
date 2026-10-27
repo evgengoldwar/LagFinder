@@ -86,8 +86,8 @@ public final class EnderIoConduits {
         TileEntity lowest = null;
         for (TileEntity tile : tiles) {
             if (lowest == null || tile.xCoord < lowest.xCoord
-                || tile.xCoord == lowest.xCoord && (tile.yCoord < lowest.yCoord
-                    || tile.yCoord == lowest.yCoord && tile.zCoord < lowest.zCoord)) {
+                || tile.xCoord == lowest.xCoord
+                    && (tile.yCoord < lowest.yCoord || tile.yCoord == lowest.yCoord && tile.zCoord < lowest.zCoord)) {
                 lowest = tile;
             }
         }

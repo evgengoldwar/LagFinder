@@ -27,10 +27,14 @@ public final class GcWatcher {
         counts = new long[beans.size()];
         millis = new long[beans.size()];
         for (int i = 0; i < beans.size(); i++) {
-            counts[i] = Math.max(0, beans.get(i)
-                .getCollectionCount());
-            millis[i] = Math.max(0, beans.get(i)
-                .getCollectionTime());
+            counts[i] = Math.max(
+                0,
+                beans.get(i)
+                    .getCollectionCount());
+            millis[i] = Math.max(
+                0,
+                beans.get(i)
+                    .getCollectionTime());
         }
     }
 

@@ -51,8 +51,8 @@ public abstract class MixinWorldServer {
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/world/SpawnerAnimals;findChunksForSpawning(Lnet/minecraft/world/WorldServer;ZZZ)I"))
-    private int lagfinder$timeMobSpawning(SpawnerAnimals spawner, WorldServer world, boolean hostile,
-        boolean peaceful, boolean animals, Operation<Integer> original) {
+    private int lagfinder$timeMobSpawning(SpawnerAnimals spawner, WorldServer world, boolean hostile, boolean peaceful,
+        boolean animals, Operation<Integer> original) {
         ProfileSession session = ProfileSession.current();
         if (session == null) {
             return original.call(spawner, world, hostile, peaceful, animals);
@@ -103,9 +103,7 @@ public abstract class MixinWorldServer {
 
     @WrapOperation(
         method = "tick",
-        at = @At(
-            value = "INVOKE",
-            target = "Lnet/minecraft/server/management/PlayerManager;updatePlayerInstances()V"))
+        at = @At(value = "INVOKE", target = "Lnet/minecraft/server/management/PlayerManager;updatePlayerInstances()V"))
     private void lagfinder$timePlayerChunks(PlayerManager manager, Operation<Void> original) {
         ProfileSession session = ProfileSession.current();
         if (session == null) {
@@ -139,9 +137,7 @@ public abstract class MixinWorldServer {
         }
     }
 
-    @WrapOperation(
-        method = "tick",
-        at = @At(value = "INVOKE", target = "Lnet/minecraft/village/VillageSiege;tick()V"))
+    @WrapOperation(method = "tick", at = @At(value = "INVOKE", target = "Lnet/minecraft/village/VillageSiege;tick()V"))
     private void lagfinder$timeSieges(VillageSiege siege, Operation<Void> original) {
         ProfileSession session = ProfileSession.current();
         if (session == null) {

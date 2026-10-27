@@ -899,11 +899,15 @@ public class GuiReport extends ScaledScreen {
     }
 
     private static boolean overlapping(Category category) {
-        return category == Category.WORLDS || category == Category.PIPE_NETWORKS;
+        return category == Category.WORLDS || category == Category.PIPE_NETWORKS
+            || category == Category.OC_THREAD
+            || category == Category.OC_SYNC;
     }
 
     private static int rank(Category category) {
-        return category == Category.PIPE_NETWORKS ? 1 : category == Category.WORLDS ? 2 : 0;
+        return category == Category.PIPE_NETWORKS ? 1
+            : category == Category.OC_THREAD ? 2
+                : category == Category.OC_SYNC ? 3 : category == Category.WORLDS ? 4 : 0;
     }
 
     private static int categoryColor(Category category) {
@@ -940,6 +944,10 @@ public class GuiReport extends ScaledScreen {
                 return 0xFF2EC4B6;
             case PIPE_NETWORKS:
                 return 0xFFF29E4C;
+            case OC_THREAD:
+                return 0xFF7ED957;
+            case OC_SYNC:
+                return 0xFF4FB3A8;
             default:
                 return TOTAL_COLOR;
         }
@@ -994,7 +1002,11 @@ public class GuiReport extends ScaledScreen {
         Theme.card(x0, y0, x1, y1);
         Icons.draw(Icons.SMALL_FLAME, x0 + 8, y0 + 7, Theme.ACCENT);
         fontRendererObj.drawString(
-            Theme.ellipsize(fontRendererObj, I18n.format("lagfinder.report.where").toUpperCase(), x1 - x0 - 28),
+            Theme.ellipsize(
+                fontRendererObj,
+                I18n.format("lagfinder.report.where")
+                    .toUpperCase(),
+                x1 - x0 - 28),
             x0 + 19,
             y0 + 7,
             Theme.TEXT);
@@ -1038,10 +1050,8 @@ public class GuiReport extends ScaledScreen {
         Icons.draw(icon(category.category), x0 + 7, y + 5, iconColor);
         String value = avgText(perPeriod);
         int valueWidth = fontRendererObj.getStringWidth(value);
-        String name = Theme.ellipsize(
-            fontRendererObj,
-            Names.category(category.category, report.mode),
-            x1 - x0 - 32 - valueWidth);
+        String name = Theme
+            .ellipsize(fontRendererObj, Names.category(category.category, report.mode), x1 - x0 - 32 - valueWidth);
         int nameColor = active ? Theme.TEXT : Theme.blend(0xFFB8C4D6, Theme.TEXT, lit);
         fontRendererObj.drawString(name, x0 + 18, y + 5, nameColor);
         fontRendererObj.drawString(value, x1 - 7 - valueWidth, y + 5, worlds ? Theme.TEXT_MUTED : severity(perPeriod));
@@ -1356,8 +1366,13 @@ public class GuiReport extends ScaledScreen {
                 : Names.category(entry.category);
         String numbers = avgText(average) + "  ·  " + I18n.format("lagfinder.report.of_tick", percent(share));
         String show = I18n.format("lagfinder.report.show") + " →";
-        int fixed = fontRendererObj.getStringWidth(label) + 6 + 16 + fontRendererObj.getStringWidth(numbers) + 10
-            + fontRendererObj.getStringWidth(show) + 14 + 14;
+        int fixed = fontRendererObj.getStringWidth(label) + 6
+            + 16
+            + fontRendererObj.getStringWidth(numbers)
+            + 10
+            + fontRendererObj.getStringWidth(show)
+            + 14
+            + 14;
         String shownName = Theme.ellipsize(fontRendererObj, name + "  " + where, Math.max(40, x1 - x0 - fixed));
         int width = fixed + fontRendererObj.getStringWidth(shownName);
         int x = x0 + Math.max(0, (x1 - x0 - width) / 2);
@@ -1431,6 +1446,10 @@ public class GuiReport extends ScaledScreen {
                 return Icons.SMALL_TASKS;
             case PIPE_NETWORKS:
                 return Icons.SMALL_PIPE;
+            case OC_THREAD:
+                return Icons.SMALL_MEMORY;
+            case OC_SYNC:
+                return Icons.SMALL_LINK;
             default:
                 return Icons.SMALL_GRID;
         }
@@ -2392,9 +2411,15 @@ public class GuiReport extends ScaledScreen {
         boolean tps = report.mode == ScanMode.TPS;
         double average = report.perPeriod(entry);
         double share = report.averagePeriodMs() <= 0 ? 0 : average / report.averagePeriodMs() * 100;
+        boolean computers = entry.category == Category.OC_THREAD && report.computerThreads > 0;
+        if (computers) {
+            share = average / (report.computerThreads * report.mode.budgetMs()) * 100;
+        }
         int periods = Math.max(1, report.periods);
         String[] labels = { I18n.format(costKey("lagfinder.stat.avg_tick", "lagfinder.stat.avg_frame")),
-            I18n.format(tps ? "lagfinder.stat.share_tick" : "lagfinder.stat.share_frame"),
+            I18n.format(
+                computers ? "lagfinder.stat.oc_load" : tps ? "lagfinder.stat.share_tick" : "lagfinder.stat.share_frame",
+                report.computerThreads),
             I18n.format(costKey("lagfinder.stat.peak", "lagfinder.stat.peak_fps")),
             I18n.format("lagfinder.stat.spikes"),
             I18n.format(tps ? "lagfinder.stat.calls_tick" : "lagfinder.stat.calls_frame"),
@@ -2408,7 +2433,8 @@ public class GuiReport extends ScaledScreen {
                     : entry.level == 1 ? String.valueOf(entry.children.size()) : "\u2014" };
         int[] colors = { severity(average), severity(average), peakColor(entry), entry.spikes > 0 ? ORANGE : Theme.TEXT,
             Theme.TEXT, Theme.TEXT };
-        String[] tips = { costKey("lagfinder.tip.avg", "lagfinder.tip.avg_fps"), "lagfinder.tip.share",
+        String[] tips = { costKey("lagfinder.tip.avg", "lagfinder.tip.avg_fps"),
+            computers ? "lagfinder.tip.oc_load" : "lagfinder.tip.share",
             costKey("lagfinder.tip.peak", "lagfinder.tip.peak_fps"), "lagfinder.tip.spikes", "lagfinder.tip.calls",
             entry.level == 3 ? "lagfinder.tip.active" : "lagfinder.tip.instances" };
         int columns = 3, gap = 6;

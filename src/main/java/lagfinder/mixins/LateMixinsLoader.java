@@ -44,6 +44,9 @@ public class LateMixinsLoader implements ILateMixinLoader {
                 mixins.add("eio.MixinTileConduitBundle");
             }
         }
+        if (loadedMods.contains("OpenComputers") && hasClass("li.cil.oc.server.machine.Machine")) {
+            mixins.add("oc.MixinMachine");
+        }
         return mixins;
     }
 

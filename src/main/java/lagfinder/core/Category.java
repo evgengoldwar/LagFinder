@@ -43,7 +43,9 @@ public enum Category {
     NEIGHBOR_UPDATES("neighbor_updates", true),
     WORLD_GEN("world_gen", false),
     PATHFINDING("pathfinding", true),
-    PIPE_NETWORKS("pipe_networks", true);
+    PIPE_NETWORKS("pipe_networks", true),
+    OC_THREAD("oc_thread", true),
+    OC_SYNC("oc_sync", false);
 
     /** Name used in translations and in reports. */
     public final String id;
@@ -59,7 +61,7 @@ public enum Category {
     public static Category[] of(ScanMode mode) {
         return mode == ScanMode.TPS
             ? new Category[] { TILE_ENTITIES, COVERS, ENTITIES, PATHFINDING, BLOCK_TICKS, NEIGHBOR_UPDATES, LIGHTING,
-                WORLD_TASKS, WORLD_GEN, AE2_NETWORKS, EVENTS, SERVER, PIPE_NETWORKS, WORLDS }
+                WORLD_TASKS, WORLD_GEN, AE2_NETWORKS, EVENTS, SERVER, PIPE_NETWORKS, OC_THREAD, OC_SYNC, WORLDS }
             : new Category[] { TILE_RENDER, ENTITY_RENDER, CHUNK_UPDATES, LIGHTING, EVENTS, TILE_ENTITIES, ENTITIES };
     }
 

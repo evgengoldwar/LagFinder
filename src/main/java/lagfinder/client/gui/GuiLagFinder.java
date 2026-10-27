@@ -64,8 +64,8 @@ public class GuiLagFinder extends GuiWindow {
         FPS(ScanFocus.LAG, Icons.MONITOR, 0xFFB37FEB, "lagfinder.gui.fps_title", "lagfinder.gui.fps_text", null),
         METHODS(ScanFocus.METHODS, Icons.WRENCH, 0xFFFF8C42, "lagfinder.gui.methods_title",
             "lagfinder.gui.methods_text", "lagfinder.gui.methods_help"),
-        OBJECTS(ScanFocus.OBJECTS, Icons.CUBE, 0xFF3FB950, "lagfinder.gui.objects_title",
-            "lagfinder.gui.objects_text", "lagfinder.gui.objects_help"),
+        OBJECTS(ScanFocus.OBJECTS, Icons.CUBE, 0xFF3FB950, "lagfinder.gui.objects_title", "lagfinder.gui.objects_text",
+            "lagfinder.gui.objects_help"),
         ALLOCATIONS(ScanFocus.ALLOCATIONS, Icons.ALLOCATIONS, 0xFF39C5CF, "lagfinder.gui.alloc_title",
             "lagfinder.gui.alloc_text", "lagfinder.gui.alloc_help"),
         STEADY(ScanFocus.STEADY, Icons.CLOCK, 0xFF72C9A5, "lagfinder.gui.steady_title", "lagfinder.gui.steady_text",
@@ -611,13 +611,7 @@ public class GuiLagFinder extends GuiWindow {
     @Override
     protected void drawContent(int mouseX, int mouseY, float partialTicks) {
         refresh();
-        section(
-            contentLeft,
-            whatY,
-            contentRight,
-            whatY + WHAT_HEIGHT,
-            Icons.SCAN,
-            I18n.format("lagfinder.gui.what"));
+        section(contentLeft, whatY, contentRight, whatY + WHAT_HEIGHT, Icons.SCAN, I18n.format("lagfinder.gui.what"));
         for (Card card : Card.values()) {
             drawCard(card, mouseX, mouseY);
         }
