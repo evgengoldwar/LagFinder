@@ -5,7 +5,6 @@ import java.util.Locale;
 
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
-import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.EnumChatFormatting;
@@ -40,7 +39,7 @@ public class StatsCommand extends CommandBase {
     public void processCommand(ICommandSender sender, String[] args) {
         EntityPlayerMP player = sender instanceof EntityPlayerMP ? (EntityPlayerMP) sender : null;
         boolean translateHere = player == null || !ServerStats.INSTANCE.hasMod(player);
-        ChatOut out = new ChatOut(translateHere, !(sender instanceof EntityPlayer));
+        ChatOut out = new ChatOut(translateHere);
         String command = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "";
         switch (command) {
             case "tps":
@@ -50,7 +49,7 @@ public class StatsCommand extends CommandBase {
                     return;
                 }
                 if (command.equals("tps")) {
-                    StatReports.tps(out, ServerStats.INSTANCE.ticks, System.nanoTime(), StatReports.DEFAULT_COLUMNS);
+                    StatReports.tps(out, ServerStats.INSTANCE.ticks, System.nanoTime());
                 } else {
                     MinecraftServer server = MinecraftServer.getServer();
                     StatReports.memory(
@@ -58,7 +57,6 @@ public class StatsCommand extends CommandBase {
                         "lagfinder.cmd.memory_server.title",
                         ServerStats.INSTANCE.memory,
                         System.nanoTime(),
-                        StatReports.DEFAULT_COLUMNS,
                         server != null && server.isSinglePlayer());
                 }
                 break;

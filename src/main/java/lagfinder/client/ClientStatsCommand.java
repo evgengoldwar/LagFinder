@@ -4,19 +4,15 @@ import java.util.List;
 import java.util.Locale;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiNewChat;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.EnumChatFormatting;
 import net.minecraft.util.IChatComponent;
-import net.minecraft.util.MathHelper;
 
 import lagfinder.stats.ChatOut;
 import lagfinder.stats.StatReports;
 
 public class ClientStatsCommand extends CommandBase {
-
-    private static final int LABEL_WIDTH = 40;
 
     @Override
     public String getCommandName() {
@@ -41,11 +37,11 @@ public class ClientStatsCommand extends CommandBase {
     @Override
     public void processCommand(ICommandSender sender, String[] args) {
         Minecraft mc = Minecraft.getMinecraft();
-        ChatOut out = new ChatOut(false, false);
+        ChatOut out = new ChatOut(false);
         String command = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "";
         switch (command) {
             case "fps":
-                StatReports.fps(out, ClientStats.INSTANCE.frames, System.nanoTime(), columns(mc));
+                StatReports.fps(out, ClientStats.INSTANCE.frames, System.nanoTime());
                 break;
             case "memory-client":
                 StatReports.memory(
@@ -53,7 +49,6 @@ public class ClientStatsCommand extends CommandBase {
                     "lagfinder.cmd.memory_client.title",
                     ClientStats.INSTANCE.memory,
                     System.nanoTime(),
-                    columns(mc),
                     mc.isSingleplayer());
                 break;
             case "tps":
@@ -71,12 +66,6 @@ public class ClientStatsCommand extends CommandBase {
         for (IChatComponent line : out.lines()) {
             sender.addChatMessage(line);
         }
-    }
-
-    private static int columns(Minecraft mc) {
-        GuiNewChat chat = mc.ingameGUI.getChatGUI();
-        int width = MathHelper.floor_float(chat.func_146228_f() / chat.func_146244_h());
-        return StatReports.columnsFor(width, mc.fontRenderer.getCharWidth('█'), LABEL_WIDTH);
     }
 
     @Override
