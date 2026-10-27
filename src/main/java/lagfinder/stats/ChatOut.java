@@ -16,6 +16,7 @@ import net.minecraft.util.StatCollector;
 public final class ChatOut {
 
     public static final String RULE = "============================";
+    public static final String MARK_START = "lagfinder.mark.start", MARK_MORE = "lagfinder.mark.more";
     private static final Pattern ARG = Pattern.compile("%(?:(\\d+)\\$)?s");
 
     private final boolean translateHere;
@@ -27,6 +28,33 @@ public final class ChatOut {
 
     public List<IChatComponent> lines() {
         return lines;
+    }
+
+    public List<IChatComponent> marked(boolean start) {
+        List<IChatComponent> marked = new ArrayList<>();
+        for (IChatComponent line : lines) {
+            IChatComponent root = new ChatComponentText("");
+            root.appendSibling(new ChatComponentTranslation(start && marked.isEmpty() ? MARK_START : MARK_MORE));
+            root.appendSibling(line);
+            marked.add(root);
+        }
+        return marked;
+    }
+
+    public static String markOf(IChatComponent line) {
+        if (line == null || line.getSiblings()
+            .isEmpty()) {
+            return null;
+        }
+        Object first = line.getSiblings()
+            .get(0);
+        if (first instanceof ChatComponentTranslation) {
+            String key = ((ChatComponentTranslation) first).getKey();
+            if (MARK_START.equals(key) || MARK_MORE.equals(key)) {
+                return key;
+            }
+        }
+        return null;
     }
 
     public IChatComponent tr(String key, Object... args) {
@@ -76,6 +104,10 @@ public final class ChatOut {
         line.appendSibling(colored(" · ", EnumChatFormatting.DARK_GRAY));
         line.appendSibling(colored(tr(key), EnumChatFormatting.WHITE));
         line(line);
+    }
+
+    public void section(String key) {
+        line(colored(tr(key), EnumChatFormatting.YELLOW));
     }
 
     public void stat(String labelKey, IChatComponent value) {

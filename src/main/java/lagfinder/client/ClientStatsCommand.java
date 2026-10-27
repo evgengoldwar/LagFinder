@@ -7,8 +7,8 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.command.CommandBase;
 import net.minecraft.command.ICommandSender;
 import net.minecraft.util.EnumChatFormatting;
-import net.minecraft.util.IChatComponent;
 
+import lagfinder.server.StatsCommand;
 import lagfinder.stats.ChatOut;
 import lagfinder.stats.StatReports;
 
@@ -21,7 +21,7 @@ public class ClientStatsCommand extends CommandBase {
 
     @Override
     public String getCommandUsage(ICommandSender sender) {
-        return "/lagfinder <fps|tps|memory-client|memory-server>";
+        return "/lagfinder <fps|tps|memory|cpu>";
     }
 
     @Override
@@ -39,33 +39,44 @@ public class ClientStatsCommand extends CommandBase {
         Minecraft mc = Minecraft.getMinecraft();
         ChatOut out = new ChatOut(false);
         String command = args.length > 0 ? args[0].toLowerCase(Locale.ROOT) : "";
+        boolean singleplayer = mc.isSingleplayer();
+        boolean serverHasMod = singleplayer || ClientScanner.INSTANCE.serverHasMod();
+        long now = System.nanoTime();
+        ClientStats stats = ClientStats.INSTANCE;
         switch (command) {
             case "fps":
-                StatReports.fps(out, ClientStats.INSTANCE.frames, System.nanoTime());
-                break;
-            case "memory-client":
-                StatReports.memory(
-                    out,
-                    "lagfinder.cmd.memory_client.title",
-                    ClientStats.INSTANCE.memory,
-                    System.nanoTime(),
-                    mc.isSingleplayer());
+                StatReports.fps(out, stats.frames, now);
                 break;
             case "tps":
-            case "memory-server":
-                if (!mc.isSingleplayer() && !ClientScanner.INSTANCE.serverHasMod()) {
-                    sender.addChatMessage(
-                        ChatOut.colored(out.tr("lagfinder.cmd.no_server_mod"), EnumChatFormatting.RED));
+                if (serverHasMod) {
+                    mc.thePlayer.sendChatMessage("/lagfinder tps");
                     return;
                 }
-                mc.thePlayer.sendChatMessage("/lagfinder " + command);
-                return;
+                out.line(ChatOut.colored(out.tr("lagfinder.cmd.no_server_mod"), EnumChatFormatting.RED));
+                break;
+            case "memory":
+            case "cpu":
+                StatReports.head(out, "lagfinder.cmd." + command + ".title");
+                if (command.equals("memory")) {
+                    StatReports.memory(out, "lagfinder.cmd.side.client", stats.memory, now);
+                } else {
+                    StatReports.cpu(out, "lagfinder.cmd.side.client", stats.cpu.process, stats.cpu.system, now);
+                }
+                if (singleplayer) {
+                    out.note(out.tr("lagfinder.cmd.same_java"));
+                } else if (serverHasMod) {
+                    StatChat.INSTANCE.show(out);
+                    mc.thePlayer.sendChatMessage("/lagfinder " + command + " " + StatsCommand.PART);
+                    return;
+                } else {
+                    out.note(out.tr("lagfinder.cmd.no_server_mod"));
+                }
+                out.rule();
+                break;
             default:
                 StatReports.help(out);
         }
-        for (IChatComponent line : out.lines()) {
-            sender.addChatMessage(line);
-        }
+        StatChat.INSTANCE.show(out);
     }
 
     @Override

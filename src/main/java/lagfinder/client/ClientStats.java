@@ -3,6 +3,7 @@ package lagfinder.client;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.TickEvent;
 import lagfinder.core.Timeline;
+import lagfinder.stats.CpuWatch;
 import lagfinder.stats.StatReports;
 
 public final class ClientStats {
@@ -13,6 +14,7 @@ public final class ClientStats {
 
     public final Timeline frames = new Timeline();
     public final Timeline memory = new Timeline();
+    public final CpuWatch cpu = new CpuWatch();
     private long lastFrame;
 
     private ClientStats() {}
@@ -33,7 +35,9 @@ public final class ClientStats {
     @SubscribeEvent
     public void onClientTick(TickEvent.ClientTickEvent event) {
         if (event.phase == TickEvent.Phase.END) {
-            memory.add(System.nanoTime(), StatReports.usedMb());
+            long now = System.nanoTime();
+            memory.add(now, StatReports.usedMb());
+            cpu.sample(now);
         }
     }
 }

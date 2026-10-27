@@ -11,6 +11,7 @@ import lagfinder.client.ClientStats;
 import lagfinder.client.ClientStatsCommand;
 import lagfinder.client.Highlighter;
 import lagfinder.client.HudOverlay;
+import lagfinder.client.StatChat;
 import lagfinder.client.KeyHandler;
 import lagfinder.client.WorldMsOverlay;
 import lagfinder.network.Net;
@@ -31,6 +32,7 @@ public class ClientProxy extends CommonProxy {
             .bus()
             .register(ClientStats.INSTANCE);
         ClientCommandHandler.instance.registerCommand(new ClientStatsCommand());
+        MinecraftForge.EVENT_BUS.register(StatChat.INSTANCE);
         MinecraftForge.EVENT_BUS.register(Highlighter.INSTANCE);
         MinecraftForge.EVENT_BUS.register(HudOverlay.INSTANCE);
         MinecraftForge.EVENT_BUS.register(WorldMsOverlay.INSTANCE);

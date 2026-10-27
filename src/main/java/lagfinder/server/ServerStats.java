@@ -9,6 +9,7 @@ import net.minecraft.entity.player.EntityPlayerMP;
 import cpw.mods.fml.common.eventhandler.SubscribeEvent;
 import cpw.mods.fml.common.gameevent.PlayerEvent;
 import lagfinder.core.Timeline;
+import lagfinder.stats.CpuWatch;
 import lagfinder.stats.StatReports;
 
 public final class ServerStats {
@@ -19,6 +20,7 @@ public final class ServerStats {
 
     public final Timeline ticks = new Timeline();
     public final Timeline memory = new Timeline();
+    public final CpuWatch cpu = new CpuWatch();
     private long lastTickEnd;
     private final Set<UUID> withMod = ConcurrentHashMap.newKeySet();
 
@@ -29,11 +31,13 @@ public final class ServerStats {
         ticks.cover(lastTickEnd != 0 && start - lastTickEnd < GAP_NANOS ? lastTickEnd : start, end);
         lastTickEnd = end;
         memory.add(end, StatReports.usedMb());
+        cpu.sample(end);
     }
 
     public void reset() {
         ticks.clear();
         memory.clear();
+        cpu.clear();
         lastTickEnd = 0;
         withMod.clear();
     }

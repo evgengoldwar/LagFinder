@@ -10,7 +10,7 @@ import lagfinder.core.Timeline;
 
 public final class StatReports {
 
-    public static final String[] COMMANDS = { "fps", "tps", "memory-client", "memory-server" };
+    public static final String[] COMMANDS = { "fps", "tps", "memory", "cpu" };
     private static final int FIVE_MINUTES = 300;
 
     private StatReports() {}
@@ -90,14 +90,18 @@ public final class StatReports {
         return Math.min(20, span.perSecond());
     }
 
-    public static void memory(ChatOut out, String titleKey, Timeline used, long nowNanos, boolean sameJava) {
+    public static void head(ChatOut out, String titleKey) {
+        out.rule();
+        out.title(titleKey);
+    }
+
+    public static void memory(ChatOut out, String sideKey, Timeline used, long nowNanos) {
         long now = Timeline.second(nowNanos);
         Runtime runtime = Runtime.getRuntime();
         double allocated = runtime.totalMemory() / 1048576.0;
         double max = runtime.maxMemory() == Long.MAX_VALUE ? allocated : runtime.maxMemory() / 1048576.0;
         double usedNow = allocated - runtime.freeMemory() / 1048576.0;
-        out.rule();
-        out.title(titleKey);
+        out.section(sideKey);
         out.stat(
             "lagfinder.cmd.now",
             out.tr(
@@ -108,10 +112,49 @@ public final class StatReports {
                 value(out, allocated)));
         memoryWindow(out, "lagfinder.cmd.min1", used.span(now - 60, now - 1), 60, max);
         memoryWindow(out, "lagfinder.cmd.min5", used.span(now - FIVE_MINUTES, now - 1), FIVE_MINUTES, max);
-        if (sameJava) {
-            out.note(out.tr("lagfinder.cmd.memory.same_java"));
+    }
+
+    public static void cpu(ChatOut out, String sideKey, Timeline process, Timeline system, long nowNanos) {
+        long now = Timeline.second(nowNanos);
+        out.section(sideKey);
+        Timeline.Span lastProcess = process.span(now - 3, now - 1), lastSystem = system.span(now - 3, now - 1);
+        out.stat(
+            "lagfinder.cmd.now",
+            !lastProcess.hasValues() ? noData(out)
+                : out.tr(
+                    "lagfinder.cmd.cpu.now",
+                    percent(lastProcess.mean()),
+                    lastSystem.hasValues() ? percent(lastSystem.mean()) : value("-", EnumChatFormatting.GRAY),
+                    value(
+                        String.valueOf(
+                            Runtime.getRuntime()
+                                .availableProcessors()),
+                        EnumChatFormatting.WHITE)));
+        cpuWindow(out, "lagfinder.cmd.min1", process.span(now - 60, now - 1), system.span(now - 60, now - 1), 60);
+        cpuWindow(
+            out,
+            "lagfinder.cmd.min5",
+            process.span(now - FIVE_MINUTES, now - 1),
+            system.span(now - FIVE_MINUTES, now - 1),
+            FIVE_MINUTES);
+    }
+
+    private static void cpuWindow(ChatOut out, String label, Timeline.Span process, Timeline.Span system,
+        int seconds) {
+        if (!process.hasValues()) {
+            out.stat(label, noData(out));
+            return;
         }
-        out.rule();
+        IChatComponent text = out.tr(
+            "lagfinder.cmd.cpu.span",
+            percent(process.mean()),
+            percent(process.high),
+            system.hasValues() ? percent(system.mean()) : value("-", EnumChatFormatting.GRAY));
+        out.stat(label, partial(out, text, process, seconds));
+    }
+
+    private static IChatComponent percent(double value) {
+        return value(Math.round(value) + "%", cpuColor(value));
     }
 
     private static void memoryWindow(ChatOut out, String label, Timeline.Span span, int seconds, double max) {
@@ -193,6 +236,12 @@ public final class StatReports {
     static EnumChatFormatting msptColor(double ms) {
         return ms <= 35 ? EnumChatFormatting.GREEN
             : ms <= 50 ? EnumChatFormatting.YELLOW : ms <= 100 ? EnumChatFormatting.GOLD : EnumChatFormatting.RED;
+    }
+
+    static EnumChatFormatting cpuColor(double percent) {
+        return percent < 50 ? EnumChatFormatting.GREEN
+            : percent < 75 ? EnumChatFormatting.YELLOW
+                : percent < 90 ? EnumChatFormatting.GOLD : EnumChatFormatting.RED;
     }
 
     static EnumChatFormatting memoryColor(double fraction) {
