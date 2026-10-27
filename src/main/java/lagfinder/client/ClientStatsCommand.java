@@ -62,16 +62,11 @@ public class ClientStatsCommand extends CommandBase {
                 } else {
                     StatReports.cpu(out, "lagfinder.cmd.side.client", stats.cpu.process, stats.cpu.system, now);
                 }
-                if (singleplayer) {
-                    out.note(out.tr("lagfinder.cmd.same_java"));
-                } else if (serverHasMod) {
+                if (!singleplayer && serverHasMod) {
                     StatChat.INSTANCE.show(out);
                     mc.thePlayer.sendChatMessage("/lagfinder " + command + " " + StatsCommand.PART);
                     return;
-                } else {
-                    out.note(out.tr("lagfinder.cmd.no_server_mod"));
                 }
-                out.rule();
                 break;
             default:
                 StatReports.help(out);

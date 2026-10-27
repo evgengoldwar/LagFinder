@@ -15,7 +15,6 @@ import net.minecraft.util.StatCollector;
 
 public final class ChatOut {
 
-    public static final String RULE = "============================";
     public static final String MARK_START = "lagfinder.mark.start", MARK_MORE = "lagfinder.mark.more";
     private static final Pattern ARG = Pattern.compile("%(?:(\\d+)\\$)?s");
 
@@ -88,11 +87,16 @@ public final class ChatOut {
     }
 
     public void line(IChatComponent line) {
-        lines.add(line);
+        IChatComponent prefixed = new ChatComponentText("");
+        prefixed.appendSibling(colored("[", EnumChatFormatting.DARK_GRAY));
+        prefixed.appendSibling(colored("\u25c9", EnumChatFormatting.GOLD));
+        prefixed.appendSibling(colored("] ", EnumChatFormatting.DARK_GRAY));
+        prefixed.appendSibling(line);
+        lines.add(prefixed);
     }
 
-    public void rule() {
-        line(colored(RULE, EnumChatFormatting.GOLD));
+    public void gap() {
+        line(new ChatComponentText(""));
     }
 
     public void title(String key) {

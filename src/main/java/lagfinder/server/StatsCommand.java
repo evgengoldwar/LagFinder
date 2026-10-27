@@ -60,6 +60,7 @@ public class StatsCommand extends CommandBase {
                     StatReports.head(out, "lagfinder.cmd." + command + ".title");
                 }
                 if (!allowed) {
+                    out.gap();
                     out.section("lagfinder.cmd.side.server");
                     error(out, "lagfinder.cmd.not_allowed");
                 } else if (command.equals("memory")) {
@@ -67,7 +68,6 @@ public class StatsCommand extends CommandBase {
                 } else {
                     StatReports.cpu(out, "lagfinder.cmd.side.server", stats.cpu.process, stats.cpu.system, now);
                 }
-                out.rule();
                 break;
             case "fps":
                 error(out, "lagfinder.cmd.client_only");
