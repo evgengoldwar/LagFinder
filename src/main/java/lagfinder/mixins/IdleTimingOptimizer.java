@@ -9,6 +9,7 @@ import org.spongepowered.asm.lib.Opcodes;
 import org.spongepowered.asm.lib.Type;
 import org.spongepowered.asm.lib.tree.AbstractInsnNode;
 import org.spongepowered.asm.lib.tree.ClassNode;
+import org.spongepowered.asm.lib.tree.IincInsnNode;
 import org.spongepowered.asm.lib.tree.InsnList;
 import org.spongepowered.asm.lib.tree.InsnNode;
 import org.spongepowered.asm.lib.tree.IntInsnNode;
@@ -222,6 +223,7 @@ public final class IdleTimingOptimizer {
 
     private static void guard(MethodNode method, InvokeDynamicInsnNode factory, MethodInsnNode handler,
         MethodNode direct, Type[] arguments, Type[] captured) {
+        method.maxLocals = nextFreeLocal(method);
         InsnList before = new InsnList();
         int[] captures = store(before, method, captured);
         int[] values = store(before, method, arguments);
@@ -246,6 +248,27 @@ public final class IdleTimingOptimizer {
         load(before, captured, captures);
         method.instructions.insertBefore(factory, before);
         method.instructions.insert(handler, end);
+    }
+
+    private static int nextFreeLocal(MethodNode method) {
+        int next = (method.access & Opcodes.ACC_STATIC) == 0 ? 1 : 0;
+        for (Type argument : Type.getArgumentTypes(method.desc)) {
+            next += argument.getSize();
+        }
+        next = Math.max(next, method.maxLocals);
+        for (AbstractInsnNode instruction : method.instructions.toArray()) {
+            if (instruction instanceof VarInsnNode) {
+                VarInsnNode variable = (VarInsnNode) instruction;
+                int opcode = variable.getOpcode();
+                int size = opcode == Opcodes.LLOAD || opcode == Opcodes.DLOAD
+                    || opcode == Opcodes.LSTORE
+                    || opcode == Opcodes.DSTORE ? 2 : 1;
+                next = Math.max(next, variable.var + size);
+            } else if (instruction instanceof IincInsnNode) {
+                next = Math.max(next, ((IincInsnNode) instruction).var + 1);
+            }
+        }
+        return next;
     }
 
     private static int[] store(InsnList code, MethodNode method, Type[] types) {
