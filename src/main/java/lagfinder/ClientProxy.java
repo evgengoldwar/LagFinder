@@ -38,6 +38,7 @@ public class ClientProxy extends CommonProxy {
         MinecraftForge.EVENT_BUS.register(Highlighter.INSTANCE);
         MinecraftForge.EVENT_BUS.register(HudOverlay.INSTANCE);
         MinecraftForge.EVENT_BUS.register(WorldMsOverlay.INSTANCE);
+        MinecraftForge.EVENT_BUS.register(LiveLagOverlay.INSTANCE);
         FMLCommonHandler.instance()
             .bus()
             .register(LiveLagOverlay.INSTANCE);

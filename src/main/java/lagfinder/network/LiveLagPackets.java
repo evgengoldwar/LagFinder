@@ -69,20 +69,6 @@ public final class LiveLagPackets {
             this.z = z;
             this.entityId = entityId;
         }
-
-        @Override
-        public boolean equals(Object other) {
-            if (!(other instanceof Hit)) {
-                return false;
-            }
-            Hit hit = (Hit) other;
-            return entityId == hit.entityId && (entityId != BLOCK || (x == hit.x && y == hit.y && z == hit.z));
-        }
-
-        @Override
-        public int hashCode() {
-            return entityId == BLOCK ? (31 * x + y) * 31 + z : entityId;
-        }
     }
 
     public static final class Batch implements IMessage {

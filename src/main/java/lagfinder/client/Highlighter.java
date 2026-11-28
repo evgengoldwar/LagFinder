@@ -145,8 +145,7 @@ public final class Highlighter {
     @SubscribeEvent
     public void onRenderWorld(RenderWorldLastEvent event) {
         Minecraft mc = Minecraft.getMinecraft();
-        LiveLagOverlay live = LiveLagOverlay.INSTANCE;
-        if (mc.theWorld == null || mc.renderViewEntity == null || (highlights.isEmpty() && !live.hasMarks(mc))) {
+        if (highlights.isEmpty() || mc.theWorld == null || mc.renderViewEntity == null) {
             hovered = null;
             return;
         }
@@ -178,7 +177,28 @@ public final class Highlighter {
             if (highlight.parts != null) {
                 drawParts(highlight.parts, rgb, lit, pulse);
             }
-            drawHighlight(box, rgb, lit, pulse);
+            fillBox(box, rgb, lit ? (int) (80 + 50 * pulse) : (int) (30 + 40 * pulse));
+            GL11.glLineWidth(lit ? 4f : 2.5f);
+            outlineBox(box, rgb, 255);
+            if (lit) {
+                // A white edge just outside, so the one looked at stands out among the others.
+                double g = 0.04;
+                GL11.glLineWidth(1.5f);
+                outlineBox(
+                    new double[] { box[0] - g, box[1] - g, box[2] - g, box[3] + g, box[4] + g, box[5] + g },
+                    0xFFFFFF,
+                    (int) (120 + 100 * pulse));
+            }
+            double cx = (box[0] + box[3]) / 2, cz = (box[2] + box[5]) / 2;
+            // A beam up from it, to find it from far away.
+            GL11.glLineWidth(4f);
+            Tessellator tess = Tessellator.instance;
+            tess.startDrawing(GL11.GL_LINES);
+            tess.setColorRGBA_I(rgb, (int) (120 + 100 * pulse));
+            tess.addVertex(cx, box[4], cz);
+            tess.setColorRGBA_I(rgb, 0);
+            tess.addVertex(cx, Math.max(box[4] + 64, 256), cz);
+            tess.draw();
             if (highlight.kind == LocationKind.CHUNK) {
                 // The chunk's border at the height of the block that ticked.
                 int chunkX = highlight.x >> 4 << 4, chunkZ = highlight.z >> 4 << 4;
@@ -189,36 +209,10 @@ public final class Highlighter {
                     140);
             }
         }
-        live.drawMarks(mc, event.partialTicks, pulse);
         GL11.glShadeModel(GL11.GL_FLAT);
         GL11.glPopMatrix();
         GL11.glPopAttrib();
         GL11.glColor4f(1f, 1f, 1f, 1f);
-    }
-
-    static void drawHighlight(double[] box, int rgb, boolean lit, double pulse) {
-        fillBox(box, rgb, lit ? (int) (80 + 50 * pulse) : (int) (30 + 40 * pulse));
-        GL11.glLineWidth(lit ? 4f : 2.5f);
-        outlineBox(box, rgb, 255);
-        if (lit) {
-            // A white edge just outside, so the one looked at stands out among the others.
-            double g = 0.04;
-            GL11.glLineWidth(1.5f);
-            outlineBox(
-                new double[] { box[0] - g, box[1] - g, box[2] - g, box[3] + g, box[4] + g, box[5] + g },
-                0xFFFFFF,
-                (int) (120 + 100 * pulse));
-        }
-        double cx = (box[0] + box[3]) / 2, cz = (box[2] + box[5]) / 2;
-        // A beam up from it, to find it from far away.
-        GL11.glLineWidth(4f);
-        Tessellator tess = Tessellator.instance;
-        tess.startDrawing(GL11.GL_LINES);
-        tess.setColorRGBA_I(rgb, (int) (120 + 100 * pulse));
-        tess.addVertex(cx, box[4], cz);
-        tess.setColorRGBA_I(rgb, 0);
-        tess.addVertex(cx, Math.max(box[4] + 64, 256), cz);
-        tess.draw();
     }
 
     private static final int PART_BATCH = 256;
@@ -329,30 +323,24 @@ public final class Highlighter {
     }
 
     private static double[] box(Highlight highlight) {
+        double e = 0.02;
         switch (highlight.kind) {
             case ENTITY:
                 if (highlight.followed != null) {
                     return highlight.followed;
                 }
-                return entityFallbackBox(highlight.x, highlight.y, highlight.z);
+                return new double[] { highlight.x - 0.1, highlight.y, highlight.z - 0.1, highlight.x + 1.1,
+                    highlight.y + 2, highlight.z + 1.1 };
             case SECTION:
                 return new double[] { highlight.x, highlight.y, highlight.z, highlight.x + 16, highlight.y + 16,
                     highlight.z + 16 };
             default:
-                return blockBox(highlight.x, highlight.y, highlight.z);
+                return new double[] { highlight.x - e, highlight.y - e, highlight.z - e, highlight.x + 1 + e,
+                    highlight.y + 1 + e, highlight.z + 1 + e };
         }
     }
 
-    static double[] blockBox(int x, int y, int z) {
-        double e = 0.02;
-        return new double[] { x - e, y - e, z - e, x + 1 + e, y + 1 + e, z + 1 + e };
-    }
-
-    static double[] entityFallbackBox(int x, int y, int z) {
-        return new double[] { x - 0.1, y, z - 0.1, x + 1.1, y + 2, z + 1.1 };
-    }
-
-    private static void fillBox(double[] b, int rgb, int alpha) {
+    static void fillBox(double[] b, int rgb, int alpha) {
         Tessellator tess = Tessellator.instance;
         tess.startDrawingQuads();
         tess.setColorRGBA_I(rgb, alpha);
@@ -376,7 +364,7 @@ public final class Highlighter {
         }
     }
 
-    private static void outlineBox(double[] b, int rgb, int alpha) {
+    static void outlineBox(double[] b, int rgb, int alpha) {
         Tessellator tess = Tessellator.instance;
         tess.startDrawing(GL11.GL_LINES);
         tess.setColorRGBA_I(rgb, alpha);

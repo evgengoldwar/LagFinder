@@ -27,6 +27,9 @@ public class CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(ServerStats.INSTANCE);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(LiveLagTracker.INSTANCE);
     }
 
     public void postInit(FMLPostInitializationEvent event) {}
