@@ -18,8 +18,10 @@ import org.spongepowered.asm.lib.Opcodes;
 import org.spongepowered.asm.lib.Type;
 import org.spongepowered.asm.lib.tree.AbstractInsnNode;
 import org.spongepowered.asm.lib.tree.ClassNode;
+import org.spongepowered.asm.lib.tree.IincInsnNode;
 import org.spongepowered.asm.lib.tree.InsnList;
 import org.spongepowered.asm.lib.tree.InsnNode;
+import org.spongepowered.asm.lib.tree.LdcInsnNode;
 import org.spongepowered.asm.lib.tree.MethodInsnNode;
 import org.spongepowered.asm.lib.tree.MethodNode;
 import org.spongepowered.asm.lib.tree.TypeInsnNode;
@@ -41,6 +43,15 @@ public class IdleTimingOptimizerTest {
         static boolean throwNext;
         static Object block, world, random;
         static int x, y, z;
+        static Object savedReference;
+        static long savedLong;
+        static int savedCounter;
+
+        public static void captureLocals(Object reference, long number, int counter) {
+            savedReference = reference;
+            savedLong = number;
+            savedCounter = counter;
+        }
 
         public static Object invoke(Operation<?> operation, Object[] arguments) {
             wrappers++;
@@ -244,8 +255,60 @@ public class IdleTimingOptimizerTest {
         assertEquals(methods + 1, target.methods.size());
     }
 
+    @Test
+    public void preservesParametersAndLocalsWhenWrappedMethodHasUncomputedMaxLocals() throws Exception {
+        ClassNode target = target("blockTick", true, new Type[0]);
+        MethodNode run = null;
+        for (MethodNode method : target.methods) {
+            if (method.name.equals("run")) run = method;
+        }
+        InsnList prefix = new InsnList();
+        prefix.add(new LdcInsnNode("saved"));
+        prefix.add(new VarInsnNode(Opcodes.ASTORE, 7));
+        prefix.add(new LdcInsnNode(1234567890123L));
+        prefix.add(new VarInsnNode(Opcodes.LSTORE, 8));
+        prefix.add(new InsnNode(Opcodes.ICONST_4));
+        prefix.add(new VarInsnNode(Opcodes.ISTORE, 10));
+        prefix.add(new IincInsnNode(10, 3));
+        run.instructions.insert(prefix);
+        InsnList suffix = new InsnList();
+        suffix.add(new VarInsnNode(Opcodes.ALOAD, 7));
+        suffix.add(new VarInsnNode(Opcodes.LLOAD, 8));
+        suffix.add(new VarInsnNode(Opcodes.ILOAD, 10));
+        suffix
+            .add(new MethodInsnNode(Opcodes.INVOKESTATIC, SUPPORT, "captureLocals", "(Ljava/lang/Object;JI)V", false));
+        Method blockTick = Support.class
+            .getMethod("blockTick", Object.class, Object.class, int.class, int.class, int.class, Object.class);
+        String descriptor = Type.getMethodDescriptor(blockTick);
+        load(suffix, Type.getArgumentTypes(descriptor), 1);
+        suffix.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SUPPORT, "blockTick", descriptor, false));
+        run.instructions.insertBefore(run.instructions.getLast(), suffix);
+        run.maxLocals = 0;
+        Fixture fixture = fixture(target);
+        Object block = new Object(), world = new Object(), random = new Object();
+        for (boolean active : new boolean[] { false, true }) {
+            fixture.active(active);
+            fixture.run(block, world, -1234, 255, 5678, random);
+            assertEquals("saved", Support.savedReference);
+            assertEquals(1234567890123L, Support.savedLong);
+            assertEquals(7, Support.savedCounter);
+            assertSame(block, Support.block);
+            assertSame(world, Support.world);
+            assertSame(random, Support.random);
+            assertEquals(-1234, Support.x);
+            assertEquals(255, Support.y);
+            assertEquals(5678, Support.z);
+        }
+        assertEquals(4, Support.calls);
+        assertEquals(1, Support.wrappers);
+        assertEquals(1, Support.finishes);
+    }
+
     private static Fixture fixture(String callback, boolean instanceBridge, Type[] captured) throws Exception {
-        ClassNode target = target(callback, instanceBridge, captured);
+        return fixture(target(callback, instanceBridge, captured));
+    }
+
+    private static Fixture fixture(ClassNode target) throws Exception {
         int methods = target.methods.size();
         IdleTimingOptimizer.optimize(target);
         assertEquals(methods + 1, target.methods.size());
