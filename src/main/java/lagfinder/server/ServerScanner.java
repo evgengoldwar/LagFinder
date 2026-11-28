@@ -353,6 +353,7 @@ public final class ServerScanner {
         ticked = true;
         runTasks();
         sendParts();
+        LiveLagTracker.INSTANCE.beginTick();
         if (session != null) {
             // What LagFinder's own tasks (a teleport, a report sent) set off is no part of the tick.
             session.dropPeriod();
@@ -374,6 +375,7 @@ public final class ServerScanner {
 
     private void endTick() {
         long now = System.nanoTime();
+        LiveLagTracker.INSTANCE.endTick();
         if (tickBegan != 0) {
             ServerStats.INSTANCE.tick(tickBegan, now);
             tickBegan = 0;
