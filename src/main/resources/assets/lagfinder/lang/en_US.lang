@@ -693,3 +693,5 @@ lagfinder.cmd.cpu.now=process %s · system %s · %s cores
 lagfinder.cmd.cpu.span=process avg %s · peak %s · system avg %s
 lagfinder.mark.start=
 lagfinder.mark.more=
+lagfinder.gui.hide_live_lag=Hide lagging blocks
+lagfinder.gui.show_live_lag=Show lagging blocks

@@ -258,6 +258,10 @@ public final class Highlighter {
         highlight.x = (int) Math.floor(entity.posX);
         highlight.y = (int) Math.floor(entity.posY);
         highlight.z = (int) Math.floor(entity.posZ);
+        highlight.followed = entityBox(entity, partialTicks);
+    }
+
+    static double[] entityBox(Entity entity, float partialTicks) {
         // Where it is drawn this frame, between its last two ticks, so the box moves smoothly with it.
         double px = entity.lastTickPosX + (entity.posX - entity.lastTickPosX) * partialTicks;
         double py = entity.lastTickPosY + (entity.posY - entity.lastTickPosY) * partialTicks;
@@ -267,7 +271,7 @@ public final class Highlighter {
         double halfZ = Math.max(0.3, (bb.maxZ - bb.minZ) / 2) + 0.1;
         double midX = px + (bb.minX + bb.maxX) / 2 - entity.posX, midZ = pz + (bb.minZ + bb.maxZ) / 2 - entity.posZ;
         double bottom = py + bb.minY - entity.posY - 0.05, top = py + bb.maxY - entity.posY + 0.1;
-        highlight.followed = new double[] { midX - halfX, bottom, midZ - halfZ, midX + halfX,
+        return new double[] { midX - halfX, bottom, midZ - halfZ, midX + halfX,
             Math.max(top, bottom + 0.6), midZ + halfZ };
     }
 
@@ -336,7 +340,7 @@ public final class Highlighter {
         }
     }
 
-    private static void fillBox(double[] b, int rgb, int alpha) {
+    static void fillBox(double[] b, int rgb, int alpha) {
         Tessellator tess = Tessellator.instance;
         tess.startDrawingQuads();
         tess.setColorRGBA_I(rgb, alpha);
@@ -360,7 +364,7 @@ public final class Highlighter {
         }
     }
 
-    private static void outlineBox(double[] b, int rgb, int alpha) {
+    static void outlineBox(double[] b, int rgb, int alpha) {
         Tessellator tess = Tessellator.instance;
         tess.startDrawing(GL11.GL_LINES);
         tess.setColorRGBA_I(rgb, alpha);

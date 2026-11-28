@@ -20,6 +20,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 
 import lagfinder.core.ProfileSession;
 import lagfinder.core.WorldTask;
+import lagfinder.server.LiveLagTracker;
 
 /** Times scheduled block ticks ({@code tickUpdates}) and random ones ({@code func_147456_g}). */
 @Mixin(WorldServer.class)
@@ -30,19 +31,26 @@ public abstract class MixinWorldServer {
         at = @At(
             value = "INVOKE",
             target = "Lnet/minecraft/block/Block;updateTick(Lnet/minecraft/world/World;IIILjava/util/Random;)V"))
-    private void lagfinder$timeBlockTick(Block block, World world, int x, int y, int z, Random random,
+    private void lagfinder$timeLiveBlockTick(Block block, World world, int x, int y, int z, Random random,
         Operation<Void> original) {
         ProfileSession session = ProfileSession.current();
-        if (session == null) {
+        boolean live = LiveLagTracker.isRecording();
+        if (session == null && !live) {
             original.call(block, world, x, y, z, random);
             return;
         }
-        long outer = session.enter();
+        long outer = session == null ? 0 : session.enter();
         long start = System.nanoTime();
         try {
             original.call(block, world, x, y, z, random);
         } finally {
-            session.recordBlockTick(world, block, x, y, z, start, outer);
+            long elapsed = live ? System.nanoTime() - start : 0;
+            if (session != null) {
+                session.recordBlockTick(world, block, x, y, z, start, outer);
+            }
+            if (live) {
+                LiveLagTracker.INSTANCE.block(world, x, y, z, elapsed);
+            }
         }
     }
 

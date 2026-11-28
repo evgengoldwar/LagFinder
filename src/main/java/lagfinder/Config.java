@@ -24,6 +24,7 @@ public class Config {
     public static int allocSampleRate = 500;
     /** How long a highlight stays in the world (seconds). */
     public static int highlightSeconds = 120;
+    public static boolean showLiveLag = true;
     public static int worldMsRadius = 16;
     public static int worldMsMaxLabels = 36;
     public static float worldMsMinMs = 0.01f;
@@ -96,6 +97,11 @@ public class Config {
             3600,
             "How long a highlight stays in the world.");
 
+        showLiveLag = configuration.getBoolean(
+            "showLiveLag",
+            "client",
+            true,
+            "Highlight nearby blocks and entities whose server update exceeds 0.1 ms.");
         worldMsRadius = configuration.getInt(
             "worldMsRadius",
             "client",
@@ -137,6 +143,7 @@ public class Config {
         put("memory", "heapLiveOnly", heapLiveOnly);
         put("memory", "allocSampleRate", allocSampleRate);
         put("client", "highlightSeconds", highlightSeconds);
+        put("client", "showLiveLag", showLiveLag);
         configuration.save();
     }
 

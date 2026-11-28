@@ -693,3 +693,5 @@ lagfinder.cmd.cpu.now=процесс %s · система %s · ядер %s
 lagfinder.cmd.cpu.span=процесс ср. %s · пик %s · система ср. %s
 lagfinder.mark.start=
 lagfinder.mark.more=
+lagfinder.gui.hide_live_lag=Скрыть лагающие блоки
+lagfinder.gui.show_live_lag=Показать лагающие блоки

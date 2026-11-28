@@ -12,8 +12,10 @@ import lagfinder.client.ClientStatsCommand;
 import lagfinder.client.Highlighter;
 import lagfinder.client.HudOverlay;
 import lagfinder.client.KeyHandler;
+import lagfinder.client.LiveLagOverlay;
 import lagfinder.client.StatChat;
 import lagfinder.client.WorldMsOverlay;
+import lagfinder.network.LiveLagPackets;
 import lagfinder.network.Net;
 
 public class ClientProxy extends CommonProxy {
@@ -36,6 +38,10 @@ public class ClientProxy extends CommonProxy {
         MinecraftForge.EVENT_BUS.register(Highlighter.INSTANCE);
         MinecraftForge.EVENT_BUS.register(HudOverlay.INSTANCE);
         MinecraftForge.EVENT_BUS.register(WorldMsOverlay.INSTANCE);
+        MinecraftForge.EVENT_BUS.register(LiveLagOverlay.INSTANCE);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(LiveLagOverlay.INSTANCE);
         FMLCommonHandler.instance()
             .bus()
             .register(WorldMsOverlay.INSTANCE);
@@ -54,6 +60,11 @@ public class ClientProxy extends CommonProxy {
     @Override
     public void onArchiveCatalog(Net.ArchiveCatalog catalog) {
         ClientReports.INSTANCE.onCatalog(catalog);
+    }
+
+    @Override
+    public void onLiveLag(LiveLagPackets.Batch batch) {
+        ClientScanner.INSTANCE.schedule(() -> LiveLagOverlay.INSTANCE.accept(batch));
     }
 
     @Override

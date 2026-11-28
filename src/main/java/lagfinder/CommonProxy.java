@@ -6,7 +6,9 @@ import cpw.mods.fml.common.event.FMLPostInitializationEvent;
 import cpw.mods.fml.common.event.FMLPreInitializationEvent;
 import cpw.mods.fml.common.event.FMLServerStartingEvent;
 import cpw.mods.fml.common.event.FMLServerStoppingEvent;
+import lagfinder.network.LiveLagPackets;
 import lagfinder.network.Net;
+import lagfinder.server.LiveLagTracker;
 import lagfinder.server.ServerScanner;
 import lagfinder.server.ServerStats;
 import lagfinder.server.StatsCommand;
@@ -25,6 +27,9 @@ public class CommonProxy {
         FMLCommonHandler.instance()
             .bus()
             .register(ServerStats.INSTANCE);
+        FMLCommonHandler.instance()
+            .bus()
+            .register(LiveLagTracker.INSTANCE);
     }
 
     public void postInit(FMLPostInitializationEvent event) {}
@@ -32,12 +37,14 @@ public class CommonProxy {
     public void serverStarting(FMLServerStartingEvent event) {
         ServerScanner.INSTANCE.reset();
         ServerStats.INSTANCE.reset();
+        LiveLagTracker.INSTANCE.reset();
         event.registerServerCommand(new StatsCommand());
     }
 
     public void serverStopping(FMLServerStoppingEvent event) {
         ServerScanner.INSTANCE.reset();
         ServerStats.INSTANCE.reset();
+        LiveLagTracker.INSTANCE.reset();
     }
 
     /** The server's state arrived (network thread); only the client cares. */
@@ -49,4 +56,6 @@ public class CommonProxy {
     public void onArchiveCatalog(Net.ArchiveCatalog catalog) {}
 
     public void onArchivePart(Net.ArchivePart part) {}
+
+    public void onLiveLag(LiveLagPackets.Batch batch) {}
 }

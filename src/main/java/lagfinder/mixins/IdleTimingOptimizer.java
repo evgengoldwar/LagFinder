@@ -236,6 +236,16 @@ public final class IdleTimingOptimizer {
         LabelNode end = new LabelNode();
         before.add(new MethodInsnNode(Opcodes.INVOKESTATIC, SESSION, "current", "()L" + SESSION + ";", false));
         before.add(new JumpInsnNode(Opcodes.IFNONNULL, active));
+        if (handler.name.contains("$lagfinder$timeLive")) {
+            before.add(
+                new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    "lagfinder/server/LiveLagTracker",
+                    "isRecording",
+                    "()Z",
+                    false));
+            before.add(new JumpInsnNode(Opcodes.IFNE, active));
+        }
         load(before, captured, captures);
         load(before, arguments, values);
         before.add(new MethodInsnNode(Opcodes.INVOKESTATIC, handler.owner, direct.name, direct.desc, false));

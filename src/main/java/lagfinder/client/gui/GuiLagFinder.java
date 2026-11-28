@@ -12,8 +12,10 @@ import net.minecraft.client.resources.I18n;
 
 import org.lwjgl.input.Keyboard;
 
+import lagfinder.Config;
 import lagfinder.client.ClientScanner;
 import lagfinder.client.KeyHandler;
+import lagfinder.client.LiveLagOverlay;
 import lagfinder.client.Names;
 import lagfinder.client.gui.ui.FlatButton;
 import lagfinder.client.gui.ui.FlatTextField;
@@ -36,7 +38,7 @@ import lagfinder.core.ScanSide;
  */
 public class GuiLagFinder extends GuiWindow {
 
-    private static final int ID_START = 0, ID_OPEN = 1;
+    private static final int ID_START = 0, ID_OPEN = 1, ID_LIVE_LAG = 2;
     /** The buttons picking the side, by {@link ScanSide} ordinal. */
     private static final int ID_SIDE = 10;
     /** The buttons picking what a tick scan's log leaves out: by average time, or by the worst tick. */
@@ -104,7 +106,7 @@ public class GuiLagFinder extends GuiWindow {
     /** A log closed with Esc: the key opens it again, instead of this window, so the search can go on. */
     private static GuiScreen reopen;
 
-    private FlatButton startButton, openButton;
+    private FlatButton startButton, openButton, liveLagButton;
     private final FlatButton[] sideButtons = new FlatButton[ScanSide.values().length];
     private TimeSlider slider;
     /** The filter of a tick scan: it can be set only while the tick scan is picked. */
@@ -205,19 +207,22 @@ public class GuiLagFinder extends GuiWindow {
         filterSlider.setStep(h -> h < 100 ? 1 : h < 1000 ? 10 : 50);
         filterSlider.setFormat(h -> filterLabel(h) + " " + I18n.format("lagfinder.unit.ms"));
 
-        int startWidth = (contentRight - contentLeft - 8) * 5 / 12;
-        startButton = new FlatButton(ID_START, contentLeft, buttonsY, startWidth, 20, "");
+        int buttonWidth = (contentRight - contentLeft - 16) / 3;
+        startButton = new FlatButton(ID_START, contentLeft, buttonsY, buttonWidth, 20, "");
         startButton.icon = Icons.PLAY;
         buttonList.add(startButton);
         openButton = new FlatButton(
             ID_OPEN,
-            contentLeft + startWidth + 8,
+            contentLeft + buttonWidth + 8,
             buttonsY,
-            contentRight - contentLeft - startWidth - 8,
+            buttonWidth,
             20,
             I18n.format("lagfinder.gui.open_report"));
         openButton.icon = Icons.STATS;
         buttonList.add(openButton);
+        int liveLagLeft = contentLeft + 2 * (buttonWidth + 8);
+        liveLagButton = new FlatButton(ID_LIVE_LAG, liveLagLeft, buttonsY, contentRight - liveLagLeft, 20, "");
+        buttonList.add(liveLagButton);
         refresh();
     }
 
@@ -423,6 +428,8 @@ public class GuiLagFinder extends GuiWindow {
         }
         openButton.enabled = !active && scanner.report() != null;
         openButton.active = openButton.enabled && scanner.hasUnseenReport();
+        liveLagButton.displayString =
+            I18n.format(Config.showLiveLag ? "lagfinder.gui.hide_live_lag" : "lagfinder.gui.show_live_lag");
     }
 
     private boolean canStart() {
@@ -497,6 +504,8 @@ public class GuiLagFinder extends GuiWindow {
         } else if (button.id == ID_OPEN && scanner.report() != null) {
             open(mc, scanner.report());
             return;
+        } else if (button.id == ID_LIVE_LAG) {
+            LiveLagOverlay.INSTANCE.setEnabled(!Config.showLiveLag);
         } else if (button.id >= ID_SIDE && button.id < ID_SIDE + sideButtons.length) {
             // The lag cards follow the side: the server's ticks or this client's frames.
             chosenSide = ScanSide.values()[button.id - ID_SIDE];

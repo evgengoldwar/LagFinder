@@ -34,7 +34,7 @@ public final class Net {
      * The version of the messages: 2 and later servers tell at once that the start of a scan arrived
      * ({@link Status#QUEUED}) and whether a scan stands paused.
      */
-    public static final int PROTOCOL = 3;
+    public static final int PROTOCOL = LiveLagPackets.PROTOCOL;
     /** Bytes of a report per message: well under the limits of a packet. */
     public static final int PART_SIZE = 30000;
 
@@ -53,6 +53,8 @@ public final class Net {
         channel.registerMessage(ArchiveRequest.Handler.class, ArchiveRequest.class, 6, Side.SERVER);
         channel.registerMessage(ArchiveCatalog.Handler.class, ArchiveCatalog.class, 7, Side.CLIENT);
         channel.registerMessage(ArchivePart.Handler.class, ArchivePart.class, 8, Side.CLIENT);
+        channel.registerMessage(LiveLagPackets.Subscription.Handler.class, LiveLagPackets.Subscription.class, 9, Side.SERVER);
+        channel.registerMessage(LiveLagPackets.Batch.Handler.class, LiveLagPackets.Batch.class, 10, Side.CLIENT);
     }
 
     public static void sendToServer(IMessage message) {

@@ -18,6 +18,7 @@ import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import lagfinder.core.Category;
 import lagfinder.core.ProfileSession;
 import lagfinder.core.WorldTask;
+import lagfinder.server.LiveLagTracker;
 
 /**
  * Times each tile entity and entity update of a world's tick, on the server and in the client's own world: their own
@@ -30,36 +31,51 @@ public abstract class MixinWorld {
     @WrapOperation(
         method = "updateEntities",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/tileentity/TileEntity;updateEntity()V"))
-    private void lagfinder$timeTileEntity(TileEntity tile, Operation<Void> original) {
+    private void lagfinder$timeLiveTileEntity(TileEntity tile, Operation<Void> original) {
         ProfileSession session = ProfileSession.current();
-        if (session == null) {
+        World world = (World) (Object) this;
+        boolean live = LiveLagTracker.isRecording() && !world.isRemote;
+        if (session == null && !live) {
             original.call(tile);
             return;
         }
-        long outer = session.enter();
+        long outer = session == null ? 0 : session.enter();
         long start = System.nanoTime();
         try {
             original.call(tile);
         } finally {
-            session.recordTile(tile, start, outer);
+            long elapsed = live ? System.nanoTime() - start : 0;
+            if (session != null) {
+                session.recordTile(tile, start, outer);
+            }
+            if (live) {
+                LiveLagTracker.INSTANCE.block(world, tile.xCoord, tile.yCoord, tile.zCoord, elapsed);
+            }
         }
     }
 
     @WrapOperation(
         method = "updateEntities",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;updateEntity(Lnet/minecraft/entity/Entity;)V"))
-    private void lagfinder$timeEntity(World world, Entity entity, Operation<Void> original) {
+    private void lagfinder$timeLiveEntity(World world, Entity entity, Operation<Void> original) {
         ProfileSession session = ProfileSession.current();
-        if (session == null) {
+        boolean live = LiveLagTracker.isRecording() && !world.isRemote;
+        if (session == null && !live) {
             original.call(world, entity);
             return;
         }
-        long outer = session.enter();
+        long outer = session == null ? 0 : session.enter();
         long start = System.nanoTime();
         try {
             original.call(world, entity);
         } finally {
-            session.record(Category.ENTITIES, entity, start, outer);
+            long elapsed = live ? System.nanoTime() - start : 0;
+            if (session != null) {
+                session.record(Category.ENTITIES, entity, start, outer);
+            }
+            if (live) {
+                LiveLagTracker.INSTANCE.entity(world, entity, elapsed);
+            }
         }
     }
 
@@ -67,18 +83,26 @@ public abstract class MixinWorld {
     @WrapOperation(
         method = "updateEntities",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/entity/Entity;onUpdate()V"))
-    private void lagfinder$timeWeather(Entity entity, Operation<Void> original) {
+    private void lagfinder$timeLiveWeather(Entity entity, Operation<Void> original) {
         ProfileSession session = ProfileSession.current();
-        if (session == null) {
+        World world = (World) (Object) this;
+        boolean live = LiveLagTracker.isRecording() && !world.isRemote;
+        if (session == null && !live) {
             original.call(entity);
             return;
         }
-        long outer = session.enter();
+        long outer = session == null ? 0 : session.enter();
         long start = System.nanoTime();
         try {
             original.call(entity);
         } finally {
-            session.record(Category.ENTITIES, entity, start, outer);
+            long elapsed = live ? System.nanoTime() - start : 0;
+            if (session != null) {
+                session.record(Category.ENTITIES, entity, start, outer);
+            }
+            if (live) {
+                LiveLagTracker.INSTANCE.entity(world, entity, elapsed);
+            }
         }
     }
 
@@ -89,18 +113,25 @@ public abstract class MixinWorld {
     @WrapOperation(
         method = "updateEntityWithOptionalForce",
         at = @At(value = "INVOKE", target = "Lnet/minecraft/world/World;updateEntity(Lnet/minecraft/entity/Entity;)V"))
-    private void lagfinder$timeRider(World world, Entity rider, Operation<Void> original) {
+    private void lagfinder$timeLiveRider(World world, Entity rider, Operation<Void> original) {
         ProfileSession session = ProfileSession.current();
-        if (session == null) {
+        boolean live = LiveLagTracker.isRecording() && !world.isRemote;
+        if (session == null && !live) {
             original.call(world, rider);
             return;
         }
-        long outer = session.enter();
+        long outer = session == null ? 0 : session.enter();
         long start = System.nanoTime();
         try {
             original.call(world, rider);
         } finally {
-            session.record(Category.ENTITIES, rider, start, outer);
+            long elapsed = live ? System.nanoTime() - start : 0;
+            if (session != null) {
+                session.record(Category.ENTITIES, rider, start, outer);
+            }
+            if (live) {
+                LiveLagTracker.INSTANCE.entity(world, rider, elapsed);
+            }
         }
     }
 

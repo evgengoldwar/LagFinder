@@ -25,6 +25,7 @@ import lagfinder.core.ReportMerge;
 import lagfinder.core.ScanFocus;
 import lagfinder.core.ScanMode;
 import lagfinder.core.ScanSide;
+import lagfinder.network.LiveLagPackets;
 import lagfinder.network.Net;
 
 /**
@@ -131,6 +132,10 @@ public final class ClientScanner {
 
     public boolean serverArchiveAvailable() {
         return serverHasMod && serverAllowed && serverProtocol >= 3;
+    }
+
+    public boolean liveLagAvailable() {
+        return serverAllowed() && serverProtocol >= LiveLagPackets.PROTOCOL;
     }
 
     public boolean teleportAllowed() {
